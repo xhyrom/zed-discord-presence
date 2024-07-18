@@ -1,0 +1,14 @@
+[package]
+name = "zed-discord-presence"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/discord_presence.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.0.6"
+
+[workspace]
+members = ["discord-presence-lsp"]

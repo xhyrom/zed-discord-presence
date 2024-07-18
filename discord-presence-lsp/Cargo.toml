@@ -1,0 +1,9 @@
+[package]
+name = "discord-presence-lsp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+discord-rich-presence = "0.2.4"
+tokio = { version = "1.37.0", features = ["full"] }
+tower-lsp = "0.20.0"

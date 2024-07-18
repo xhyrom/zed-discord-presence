@@ -1,0 +1,56 @@
+id = "discord_presence"
+name = "Discord Presence"
+version = "0.1.0"
+schema_version = 1
+authors = ["Jozef Steinhübl <lol@xhyrom.dev>"]
+description = "Presence for your beautiful discord account :)"
+repository = "https://git.sr.ht/~hyro/zed-discord-presence"
+
+[language_servers.discord_presence]
+name = "Discord Presence LSP"
+# Taken from https://github.com/zed-industries/zed/blob/efc2336be5dd352961765398350fc2fe10f15345/extensions/snippets/extension.toml#L11-L15
+languages = [
+    "Astro",
+    "Clojure",
+    "C",
+    "C++",
+    "C#",
+    "Dart",
+    "Dockerfile",
+    "Elixir",
+    "Elm",
+    "ERB",
+    "Erlang",
+    "Gleam",
+    "GLSL",
+    "Go",
+    "Haskell",
+    "HCL",
+    "HEEX",
+    "HTML",
+    "JavaScript",
+    "JSDoc",
+    "JSON",
+    "Lua",
+    "Markdown",
+    "OCaml",
+    "PHP",
+    "Python",
+    "Prisma",
+    "PureScript",
+    "Racket",
+    "Ruby",
+    "Rust",
+    "Scheme",
+    "Shell Script",
+    "Svelte",
+    "Terraform",
+    "TOML",
+    "TypeScript",
+    "TSX",
+    "Uiua",
+    "Vue.js",
+    "Zig",
+    "LOG",
+]
+language_ids = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", "Vue.js" = "vue", Terraform = "terraform", "Terraform Vars" = "terraform-vars", PHP = "php", HTML = "html", CSS = "css", LOG = "log" }
