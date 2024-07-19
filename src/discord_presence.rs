@@ -95,7 +95,6 @@ impl DiscordPresenceExtension {
         }
 
         self.cached_binary_path = Some(binary_path.clone());
-        println!("cached binary path {:?}", self.cached_binary_path);
         Ok(binary_path)
     }
 }
