@@ -1,0 +1,13 @@
+name: Install rust
+description: Installs the latest version of rust, rustfmt & clippy
+
+runs:
+  using: composite
+  steps:
+    - name: install rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: cache dependencies
+      uses: Swatinem/rust-cache@v2

@@ -1,0 +1,17 @@
+name: Check
+description: Lints & formats
+
+runs:
+  using: composite
+  steps:
+    - name: check
+      shell: bash
+      run: cargo check --all
+
+    - name: fmt
+      shell: bash
+      run: cargo fmt --all -- --check
+
+    - name: clippy
+      shell: bash
+      run: cargo clippy --all -- -D warnings

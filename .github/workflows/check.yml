@@ -5,24 +5,14 @@ on:
 
 jobs:
   check:
+    name: check
     runs-on: ubuntu-latest
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
       - name: install rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: cache dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: ./github/actions/install-rust
 
       - name: check
-        run: cargo check --all
-
-      - name: fmt
-        run: cargo fmt --all -- --check
-
-      - name: clippy
-        run: cargo clippy --all -- -D warnings
+        uses: ./github/actions/check
