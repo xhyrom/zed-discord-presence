@@ -14,6 +14,7 @@ runs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy
+        targets: ${{ inputs.targets }}
 
     - name: cache dependencies
       uses: Swatinem/rust-cache@v2
