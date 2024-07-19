@@ -5,6 +5,7 @@ struct DiscordPresenceExtension {
     cached_binary_path: Option<String>,
 }
 
+#[allow(clippy::match_wildcard_for_single_variants)]
 impl DiscordPresenceExtension {
     fn language_server_binary_path(
         &mut self,
@@ -40,7 +41,7 @@ impl DiscordPresenceExtension {
             arch = match arch {
                 zed::Architecture::Aarch64 => "aarch64",
                 zed::Architecture::X8664 => "x86_64",
-                _ => return Err(format!("unsupported architecture: {:?}", arch)),
+                _ => return Err(format!("unsupported architecture: {arch:?}")),
             },
             os = match platform {
                 zed::Os::Mac => "apple-darwin",
@@ -57,7 +58,7 @@ impl DiscordPresenceExtension {
             .assets
             .iter()
             .find(|asset| asset.name == asset_name)
-            .ok_or_else(|| format!("no asset found matching {:?}", asset_name))?;
+            .ok_or_else(|| format!("no asset found matching {asset_name:?}"))?;
 
         let version_dir = format!("discord-presence-lsp-{}", release.version);
         let asset_name = asset_name

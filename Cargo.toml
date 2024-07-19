@@ -2,6 +2,9 @@
 name = "zed-discord-presence"
 version = "0.1.0"
 edition = "2021"
+license = "GNU General Public License v3.0"
+license-file = "LICENSE"
+repository = "https://git.sr.ht/~hyro/zed-discord-presence"
 
 [lib]
 path = "src/discord_presence.rs"
@@ -12,3 +15,12 @@ zed_extension_api = "0.0.6"
 
 [workspace]
 members = ["lsp"]
+
+[lints]
+[lints.clippy]
+correctness = "deny"
+suspicious = "warn"
+complexity = "warn"
+perf = "warn"
+style = "deny"
+pedantic = "warn"
