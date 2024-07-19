@@ -4,7 +4,7 @@ Using LSP is a workaround for now (yeah, it's a bit hacky) but once Zed has prop
 
 ### Requirements
 
-[rust](https://rust-lang.org) is required for installing this extension.
+[rust](https://rust-lang.org) is required for installing this extension. \
 The easiest way to get [rust](https://rust-lang.org) is by using [rustup](https://rustup.rs)
 
 ### How to install?
