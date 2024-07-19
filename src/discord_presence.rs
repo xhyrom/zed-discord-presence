@@ -74,7 +74,7 @@ impl DiscordPresenceExtension {
             );
 
             zed::download_file(
-                &asset.name,
+                &asset.download_url,
                 &version_dir,
                 match platform {
                     zed::Os::Mac | zed::Os::Linux => zed::DownloadedFileType::GzipTar,
