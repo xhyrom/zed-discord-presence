@@ -1,5 +1,7 @@
 **Zed discord presence** is an extension for [Zed](https://zed.dev) that adds support for [Discord Rich Presence](https://discord.com/developers/docs/rich-presence/how-to) using LSP
 
+Using LSP is a workaround for now (yeh, it's a little bit hacky) but once Zed has proper extension support, I'll rewrite it
+
 ### How to install?
 
 1. Clone this repository
