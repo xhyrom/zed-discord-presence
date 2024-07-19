@@ -50,6 +50,7 @@ jobs:
         run: cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
 
       - name: prepare for upload
+        shell: bash
         id: vars
         run: |
           BIN_SUFFIX=""
