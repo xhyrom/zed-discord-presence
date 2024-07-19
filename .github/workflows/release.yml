@@ -73,13 +73,13 @@ jobs:
 
           if [[ "${{ matrix.archive }}" == "tar.gz" ]]; then
             ARCHIVE_PATH="tmp/${ARCHIVE_NAME}.tar.gz"
-            tar -czvf "${ARCHIVE_PATH}" -C "tmp/${ARCHIVE_NAME}"
+            tar -czvf "${ARCHIVE_PATH}" -C "tmp/${ARCHIVE_NAME}" .
           else
             ARCHIVE_PATH="tmp/${ARCHIVE_NAME}.zip"
-            zip -r "${ARCHIVE_PATH}" -C "tmp/${ARCHIVE_NAME}"
+            zip -r "${ARCHIVE_PATH}" "tmp/${ARCHIVE_NAME}"
           fi
 
-          echo "archive_name=${ARCHIVE_NAME}"
+          echo "archive_name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
           echo "archive_path=${ARCHIVE_PATH}" >> $GITHUB_OUTPUT
 
       - name: upload artifact
