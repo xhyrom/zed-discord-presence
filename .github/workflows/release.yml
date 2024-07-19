@@ -45,6 +45,11 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: install rust
+        uses: ./.github/actions/install-rust
+        with:
+          targets: "${{ matrix.target }}"
+
       - name: build binary
         run: cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
 
