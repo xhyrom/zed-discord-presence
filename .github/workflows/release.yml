@@ -73,7 +73,12 @@ jobs:
             tar -czvf "${ARCHIVE_PATH}" -C "tmp/${ARCHIVE_NAME}" .
           else
             ARCHIVE_PATH="tmp/${ARCHIVE_NAME}.zip"
-            zip -r "${ARCHIVE_PATH}" "tmp/${ARCHIVE_NAME}"
+
+            if [[ "${{ matrix.runner }}" == "windows-latest" ]]; then
+              7z a "${ARCHIVE_PATH}" "tmp/${ARCHIVE_NAME}"
+            else
+              zip -r "${ARCHIVE_PATH}" "tmp/${ARCHIVE_NAME}"
+            fi
           fi
 
           echo "archive_name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
