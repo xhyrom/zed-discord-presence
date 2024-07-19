@@ -11,4 +11,4 @@ crate-type = ["cdylib"]
 zed_extension_api = "0.0.6"
 
 [workspace]
-members = ["discord-presence-lsp"]
+members = ["lsp"]
