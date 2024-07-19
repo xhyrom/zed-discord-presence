@@ -35,6 +35,12 @@ impl Discord {
         result.unwrap();
     }
 
+    pub fn kill(&self) {
+        let mut client = self.get_client();
+        let result = client.close();
+        result.unwrap();
+    }
+
     pub fn change_file(&self, filename: &str, workspace: &str) {
         self.change_activity(
             format!("Working on {}", filename),
@@ -58,12 +64,11 @@ impl Discord {
                     .details(details.as_str())
                     .timestamps(Timestamps::new().start(timestamp)),
             )
-            .expect(
-                format!(
+            .unwrap_or_else(|_| {
+                panic!(
                     "Failed to set activity with state {} and details {}",
                     state, details
                 )
-                .as_str(),
-            );
+            });
     }
 }

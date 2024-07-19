@@ -96,7 +96,7 @@ impl LanguageServer for Backend {
             }),
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::NONE,
+                    TextDocumentSyncKind::INCREMENTAL,
                 )),
                 ..Default::default()
             },
@@ -113,6 +113,8 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
+        self.discord.kill();
+
         Ok(())
     }
 
@@ -124,47 +126,6 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         self.on_change(Document::new(params.text_document.uri))
             .await;
-    }
-
-    async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        self.on_change(Document::new(params.text_document.uri))
-            .await;
-    }
-
-    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        self.on_change(Document::new(
-            params.text_document_position_params.text_document.uri,
-        ))
-        .await;
-
-        return Ok(None);
-    }
-
-    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
-        self.on_change(Document::new(params.text_document.uri))
-            .await;
-
-        return Ok(Some(vec![]));
-    }
-
-    async fn semantic_tokens_full(
-        &self,
-        params: SemanticTokensParams,
-    ) -> Result<Option<SemanticTokensResult>> {
-        self.on_change(Document::new(params.text_document.uri))
-            .await;
-
-        return Ok(None);
-    }
-
-    async fn semantic_tokens_full_delta(
-        &self,
-        params: SemanticTokensDeltaParams,
-    ) -> Result<Option<SemanticTokensFullDeltaResult>> {
-        self.on_change(Document::new(params.text_document.uri))
-            .await;
-
-        return Ok(None);
     }
 }
 
