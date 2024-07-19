@@ -1,32 +1,24 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use discord::Discord;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use discord_rich_presence::{
-    activity::{self, Assets, Timestamps},
-    DiscordIpc, DiscordIpcClient,
-};
+mod discord;
 
 #[derive(Debug)]
-struct Discord {
-    client: Mutex<DiscordIpcClient>,
-    start_timestamp: Duration,
+struct Document {
+    path: PathBuf,
 }
 
 #[derive(Debug)]
 struct Backend {
-    discord: Discord,
+    discord: discord::Discord,
     client: Client,
-    root_uri: Mutex<PathBuf>,
-}
-
-struct Document {
-    path: PathBuf,
+    workspace_file_name: Mutex<String>,
 }
 
 impl Document {
@@ -46,27 +38,11 @@ impl Document {
 
 impl Backend {
     fn new(client: Client) -> Self {
-        let discord_client = DiscordIpcClient::new("1263505205522337886")
-            .expect("Failed to initialize Discord Ipc Client");
-        let start_timestamp = SystemTime::now();
-        let since_epoch = start_timestamp
-            .duration_since(UNIX_EPOCH)
-            .expect("Failed to get duration since UNIX_EPOCH");
-
         Self {
             client,
-            discord: Discord {
-                client: Mutex::new(discord_client),
-                start_timestamp: since_epoch,
-            },
-            root_uri: Mutex::new(PathBuf::new()),
+            discord: Discord::new(),
+            workspace_file_name: Mutex::new(String::new()),
         }
-    }
-
-    fn start_client(&self) {
-        let mut client = self.get_discord_client();
-        let result = client.connect();
-        result.unwrap();
     }
 
     async fn on_change(&self, doc: Document) {
@@ -76,52 +52,42 @@ impl Backend {
                 format!(
                     "Changing to {} in {}",
                     doc.get_filename(),
-                    self.get_workspace()
+                    self.get_workspace_file_name()
                 ),
             )
             .await;
 
-        let mut client = self.get_discord_client();
-        let timestamp: i64 = self.discord.start_timestamp.as_millis() as i64;
-
-        let _ = client.set_activity(
-            activity::Activity::new()
-                .assets(Assets::new().large_image("logo"))
-                .state(format!("Working on {}", doc.get_filename()).as_str())
-                .details(format!("In {}", self.get_workspace()).as_str())
-                .timestamps(Timestamps::new().start(timestamp)),
-        );
+        self.discord
+            .change_file(doc.get_filename(), self.get_workspace_file_name().as_str())
     }
 
-    fn get_discord_client(&self) -> MutexGuard<DiscordIpcClient> {
+    fn get_workspace_file_name(&self) -> MutexGuard<'_, String> {
         return self
-            .discord
-            .client
+            .workspace_file_name
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
-    }
-
-    fn get_workspace(&self) -> String {
-        return String::from(
-            self.root_uri
-                .lock()
-                .unwrap()
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap(),
-        );
+            .expect("Failed to lock workspace file name");
     }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        self.start_client();
-        self.root_uri
+        // Connect discord client
+        self.discord.connect();
+
+        // Set workspace name
+        let root_uri = params.root_uri.expect("Failed to get root uri");
+        let workspace_path = Path::new(root_uri.path());
+        self.workspace_file_name
             .lock()
-            .unwrap()
-            .push(params.root_uri.unwrap().path());
+            .expect("Failed to lock workspace file name")
+            .push_str(
+                workspace_path
+                    .file_name()
+                    .expect("Failed to get workspace file name")
+                    .to_str()
+                    .expect("Failed to convert workspace file name &OsStr to &str"),
+            );
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
@@ -159,6 +125,47 @@ impl LanguageServer for Backend {
         self.on_change(Document::new(params.text_document.uri))
             .await;
     }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        self.on_change(Document::new(params.text_document.uri))
+            .await;
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        self.on_change(Document::new(
+            params.text_document_position_params.text_document.uri,
+        ))
+        .await;
+
+        return Ok(None);
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        self.on_change(Document::new(params.text_document.uri))
+            .await;
+
+        return Ok(Some(vec![]));
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        self.on_change(Document::new(params.text_document.uri))
+            .await;
+
+        return Ok(None);
+    }
+
+    async fn semantic_tokens_full_delta(
+        &self,
+        params: SemanticTokensDeltaParams,
+    ) -> Result<Option<SemanticTokensFullDeltaResult>> {
+        self.on_change(Document::new(params.text_document.uri))
+            .await;
+
+        return Ok(None);
+    }
 }
 
 #[tokio::main]
@@ -166,7 +173,7 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend::new(client));
+    let (service, socket) = LspService::new(Backend::new);
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }
