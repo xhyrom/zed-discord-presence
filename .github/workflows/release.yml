@@ -1,6 +1,10 @@
 name: Release
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "lsp version"
+        required: true
 
 jobs:
   check:
@@ -70,15 +74,18 @@ jobs:
 
           if [[ "${{ matrix.archive }}" == "tar.gz" ]]; then
             ARCHIVE_PATH="tmp/${ARCHIVE_NAME}.tar.gz"
-            tar -czvf "${ARCHIVE_PATH}" -C "tmp/${ARCHIVE_NAME}" .
+            tar -czvf "${ARCHIVE_PATH}" -C "tmp" "${ARCHIVE_NAME}"
           else
             ARCHIVE_PATH="tmp/${ARCHIVE_NAME}.zip"
 
+            cd tmp
             if [[ "${{ matrix.runner }}" == "windows-latest" ]]; then
-              7z a "${ARCHIVE_PATH}" "tmp/${ARCHIVE_NAME}"
+              7z a "../${ARCHIVE_PATH}" "${ARCHIVE_NAME}"
             else
-              zip -r "${ARCHIVE_PATH}" "tmp/${ARCHIVE_NAME}"
+              zip -r "../${ARCHIVE_PATH}" "/${ARCHIVE_NAME}"
             fi
+
+            cd ..
           fi
 
           echo "archive_name=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
@@ -90,3 +97,26 @@ jobs:
           name: ${{ steps.vars.outputs.archive_name }}
           path: |
             ${{ steps.vars.outputs.archive_path }}
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Create the release
+        uses: softprops/action-gh-release@c062e08bd532815e2082a85e87e3ef29c3e6d191
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          draft: true
+          files: |
+            artifacts/*
