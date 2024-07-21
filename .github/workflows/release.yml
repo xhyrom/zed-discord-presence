@@ -54,7 +54,7 @@ jobs:
           targets: "${{ matrix.target }}"
 
       - name: bootstrap
-        if: ${{ matrix.bootstrap != "" }}
+        if: ${{ matrix.bootstrap != '' }}
         run: ${{ matrix.bootstrap }}
 
       - name: build binary
