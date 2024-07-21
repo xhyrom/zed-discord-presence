@@ -30,16 +30,16 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
-            bootstrap: sudo apt-get update && sudo apt-get install -y libssl-dev
+            bootstrap: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
 
           - target: x86_64-apple-darwin
             runner: macos-latest
             archive: tar.gz
-            bootstrap: brew install openssl
+            bootstrap: brew install openssl pkg-config
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive: tar.gz
-            bootstrap: brew install openssl
+            bootstrap: brew install openssl pkg-config
 
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
