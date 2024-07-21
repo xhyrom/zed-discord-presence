@@ -35,7 +35,11 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-latest
             archive: tar.gz
-            bootstrap: arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" && arch -x86_64 /usr/local/bin/brew brew install openssl@3 && echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+            bootstrap: |
+              arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+              arch -x86_64 /usr/local/bin/brew brew install openssl@3
+              echo 'eval "$(/usr/local/bin/brew shellenv)"') >> /Users/runner/.bash_profile
+              echo "OPENSSL_DIR=$(/usr/local/bin/brew --prefix openssl@3)" >> $GITHUB_ENV
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive: tar.gz
