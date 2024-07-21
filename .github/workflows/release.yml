@@ -35,11 +35,11 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-latest
             archive: tar.gz
-            bootstrap: echo 'export OPENSSL_DIR=$(brew --prefix openssl@3)' >> $GITHUB_ENV
+            bootstrap: echo 'OPENSSL_DIR=$(brew --prefix openssl@3)' >> $GITHUB_ENV
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive: tar.gz
-            bootstrap: echo 'export OPENSSL_DIR=$(brew --prefix openssl@3)' >> $GITHUB_ENV
+            bootstrap: echo 'OPENSSL_DIR=$(brew --prefix openssl@3)' >> $GITHUB_ENV
 
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
