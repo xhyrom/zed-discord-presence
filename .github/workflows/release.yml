@@ -58,7 +58,12 @@ jobs:
         run: ${{ matrix.bootstrap }}
 
       - name: build binary
-        run: cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
+        if: ${{ matrix.runner == 'macos-latest' }}
+        run: OPENSSL_DIR=$(brew --prefix openssl@1.1) cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
+
+      - name: build binary
+        if: ${{ matrix.runner != 'macos-latest' }}
+        run: OPENSSL_DIR=$(brew --prefix openssl@1.1) cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
 
       - name: prepare for upload
         shell: bash
