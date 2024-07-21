@@ -3,11 +3,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use discord::Discord;
+use git::get_repository_and_remote;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 mod discord;
+mod git;
 
 #[derive(Debug)]
 struct Document {
@@ -19,6 +21,7 @@ struct Backend {
     discord: discord::Discord,
     client: Client,
     workspace_file_name: Mutex<String>,
+    git_remote_url: Mutex<Option<String>>,
 }
 
 impl Document {
@@ -42,23 +45,16 @@ impl Backend {
             client,
             discord: Discord::new(),
             workspace_file_name: Mutex::new(String::new()),
+            git_remote_url: Mutex::new(None),
         }
     }
 
     async fn on_change(&self, doc: Document) {
-        self.client
-            .log_message(
-                MessageType::LOG,
-                format!(
-                    "Changing to {} in {}",
-                    doc.get_filename(),
-                    self.get_workspace_file_name()
-                ),
-            )
-            .await;
-
-        self.discord
-            .change_file(doc.get_filename(), self.get_workspace_file_name().as_str())
+        self.discord.change_file(
+            doc.get_filename(),
+            self.get_workspace_file_name().as_str(),
+            self.get_git_remote_url(),
+        )
     }
 
     fn get_workspace_file_name(&self) -> MutexGuard<'_, String> {
@@ -66,6 +62,15 @@ impl Backend {
             .workspace_file_name
             .lock()
             .expect("Failed to lock workspace file name");
+    }
+
+    fn get_git_remote_url(&self) -> Option<String> {
+        let guard = self
+            .git_remote_url
+            .lock()
+            .expect("Failed to lock git remote url");
+
+        guard.clone()
     }
 }
 
@@ -88,6 +93,9 @@ impl LanguageServer for Backend {
                     .to_str()
                     .expect("Failed to convert workspace file name &OsStr to &str"),
             );
+
+        let mut git_remote_url = self.git_remote_url.lock().unwrap();
+        *git_remote_url = get_repository_and_remote(workspace_path.to_str().unwrap());
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {

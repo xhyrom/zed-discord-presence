@@ -4,7 +4,7 @@ use std::{
 };
 
 use discord_rich_presence::{
-    activity::{self, Assets, Timestamps},
+    activity::{self, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
 
@@ -41,10 +41,11 @@ impl Discord {
         result.unwrap();
     }
 
-    pub fn change_file(&self, filename: &str, workspace: &str) {
+    pub fn change_file(&self, filename: &str, workspace: &str, git_remote_url: Option<String>) {
         self.change_activity(
             format!("Working on {}", filename),
             format!("In {}", workspace),
+            git_remote_url,
         )
     }
 
@@ -52,9 +53,15 @@ impl Discord {
         return self.client.lock().expect("Failed to lock discord client");
     }
 
-    fn change_activity(&self, state: String, details: String) {
+    fn change_activity(&self, state: String, details: String, git_remote_url: Option<String>) {
         let mut client = self.get_client();
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
+
+        let mut buttons: Vec<Button> = Vec::new();
+
+        if let Some(git_remote_url) = git_remote_url.as_ref() {
+            buttons.push(Button::new("View Repository", git_remote_url));
+        }
 
         client
             .set_activity(
@@ -62,10 +69,11 @@ impl Discord {
                     .assets(Assets::new().large_image("logo"))
                     .state(state.as_str())
                     .details(details.as_str())
-                    .timestamps(Timestamps::new().start(timestamp)),
+                    .timestamps(Timestamps::new().start(timestamp))
+                    .buttons(buttons),
             )
             .unwrap_or_else(|_| {
-                panic!(
+                println!(
                     "Failed to set activity with state {} and details {}",
                     state, details
                 )
