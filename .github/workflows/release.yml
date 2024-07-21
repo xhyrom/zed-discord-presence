@@ -30,13 +30,16 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
+            bootstrap: sudo apt-get update && sudo apt-get install -y libssl-dev
 
           - target: x86_64-apple-darwin
             runner: macos-latest
             archive: tar.gz
+            bootstrap: brew install openssl
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive: tar.gz
+            bootstrap: brew install openssl
 
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
@@ -49,6 +52,10 @@ jobs:
         uses: ./.github/actions/install-rust
         with:
           targets: "${{ matrix.target }}"
+
+      - name: bootstrap
+        if: ${{ matrix.bootstrap != "" }}
+        run: ${{ matrix.bootstrap }}
 
       - name: build binary
         run: cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
