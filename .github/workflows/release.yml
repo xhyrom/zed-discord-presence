@@ -35,7 +35,7 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-latest
             archive: tar.gz
-            bootstrap: brew install openssl@3 --build-bottle --force-bottle --arch=x86_64 && echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+            bootstrap: arch -x86_64 /usr/local/bin/brew brew install openssl@3 && echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive: tar.gz
