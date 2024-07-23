@@ -1,0 +1,8 @@
+[providers]
+[providers.sourcehut]
+ssh = "git@git.sr.ht:~hyro/zed-discord-presence"
+[providers.github]
+ssh = "git@github.com:xhyrom/zed-discord-presence.git"
+primary = true
+[providers.codeberg]
+ssh = "git@codeberg.org:xHyroM/zed-discord-presence.git"
