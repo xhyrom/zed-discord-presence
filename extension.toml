@@ -2,7 +2,7 @@ id = "discord_presence"
 name = "Discord Presence"
 version = "0.1.0"
 schema_version = 1
-authors = ["Jozef Steinhübl <lol@xhyrom.dev>"]
+authors = ["Jozef Steinhübl <contact@xhyrom.dev>"]
 description = "Presence for your beautiful discord account :)"
 repository = "https://git.sr.ht/~hyro/zed-discord-presence"
 
