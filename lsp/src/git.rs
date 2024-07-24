@@ -32,11 +32,12 @@ fn get_main_remote_url(repository: Repository) -> Option<String> {
     }
 
     return match repository.remotes() {
-        Ok(remotes) => repository
-            .find_remote(remotes.get(0).unwrap())
-            .unwrap()
-            .url()
-            .map(|url| transform_url(url.to_string())),
+        Ok(remotes) => remotes.get(0).and_then(|name| {
+            repository
+                .find_remote(name)
+                .ok()
+                .and_then(|remote| remote.url().map(|url| transform_url(url.to_string())))
+        }),
         Err(_) => None,
     };
 }
