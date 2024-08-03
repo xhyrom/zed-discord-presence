@@ -13,3 +13,21 @@ The easiest way to get [rust](https://rust-lang.org) is by using [rustup](https:
 2. <kbd>CTRL</kbd> + <kbd>SHIFT</kbd> + <kbd>P</kbd> and select <kbd>zed: install dev extension</kbd>
 3. Choose the directory where you cloned this repository
 4. Enjoy :)
+
+## How to configure?
+
+You can configure state, details and git integration by changing Discord Presence LSP settings. This can be done in <kbd>zed: open settings</kbd> with following configuration:
+
+```json
+{
+  "lsp": {
+    "discord_presence": {
+      "initialization_options": {
+        "state": "Working on {filename}",
+        "details": "In {workspace}",
+        "git_integration": true
+      }
+    }
+  }
+}
+```
