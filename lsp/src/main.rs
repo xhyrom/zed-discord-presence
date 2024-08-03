@@ -75,7 +75,7 @@ impl Backend {
     async fn on_change(&self, doc: Document) {
         let config = self.get_config();
 
-        let state = config.state.replace("{filename}", &doc.get_filename());
+        let state = config.state.replace("{filename}", doc.get_filename());
         let details = config
             .details
             .replace("{workspace}", &self.get_workspace_file_name());
