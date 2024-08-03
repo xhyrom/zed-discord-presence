@@ -21,12 +21,14 @@ use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use configuration::Configuration;
 use discord::Discord;
 use git::get_repository_and_remote;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+mod configuration;
 mod discord;
 mod git;
 
@@ -41,6 +43,7 @@ struct Backend {
     client: Client,
     workspace_file_name: Mutex<String>,
     git_remote_url: Mutex<Option<String>>,
+    config: Mutex<Configuration>,
 }
 
 impl Document {
@@ -65,15 +68,27 @@ impl Backend {
             discord: Discord::new(),
             workspace_file_name: Mutex::new(String::new()),
             git_remote_url: Mutex::new(None),
+            config: Mutex::new(Configuration::new()),
         }
     }
 
     async fn on_change(&self, doc: Document) {
-        self.discord.change_file(
-            doc.get_filename(),
-            self.get_workspace_file_name().as_str(),
-            self.get_git_remote_url(),
-        )
+        let config = self.get_config();
+
+        let state = config.state.replace("{filename}", doc.get_filename());
+        let details = config
+            .details
+            .replace("{workspace}", &self.get_workspace_file_name());
+
+        self.discord.change_activity(
+            state,
+            details,
+            if config.git_integration {
+                self.get_git_remote_url()
+            } else {
+                None
+            },
+        );
     }
 
     fn get_workspace_file_name(&self) -> MutexGuard<'_, String> {
@@ -90,6 +105,10 @@ impl Backend {
             .expect("Failed to lock git remote url");
 
         guard.clone()
+    }
+
+    fn get_config(&self) -> MutexGuard<Configuration> {
+        return self.config.lock().expect("Failed to lock config");
     }
 }
 
@@ -115,6 +134,9 @@ impl LanguageServer for Backend {
 
         let mut git_remote_url = self.git_remote_url.lock().unwrap();
         *git_remote_url = get_repository_and_remote(workspace_path.to_str().unwrap());
+
+        let mut config = self.config.lock().unwrap();
+        config.set(params.initialization_options);
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {

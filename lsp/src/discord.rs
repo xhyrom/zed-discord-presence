@@ -60,19 +60,11 @@ impl Discord {
         result.unwrap();
     }
 
-    pub fn change_file(&self, filename: &str, workspace: &str, git_remote_url: Option<String>) {
-        self.change_activity(
-            format!("Working on {}", filename),
-            format!("In {}", workspace),
-            git_remote_url,
-        )
-    }
-
     pub fn get_client(&self) -> MutexGuard<DiscordIpcClient> {
         return self.client.lock().expect("Failed to lock discord client");
     }
 
-    fn change_activity(&self, state: String, details: String, git_remote_url: Option<String>) {
+    pub fn change_activity(&self, state: String, details: String, git_remote_url: Option<String>) {
         let mut client = self.get_client();
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
 
