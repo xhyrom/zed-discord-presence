@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use regex::{Regex, RegexBuilder};
+use regex::RegexBuilder;
 use serde_json::from_str;
 use std::collections::HashMap;
 use std::sync::Mutex;
