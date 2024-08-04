@@ -21,37 +21,66 @@ use serde_json::Value;
 
 #[derive(Debug)]
 pub struct Configuration {
-    pub state: String,
-    pub details: String,
+    pub base_icons_url: String,
+
+    pub state: Option<String>,
+    pub details: Option<String>,
+
+    pub large_image: Option<String>,
+    pub large_text: Option<String>,
+    pub small_image: Option<String>,
+    pub small_text: Option<String>,
+
     pub git_integration: bool,
+}
+
+macro_rules! set_option {
+    ($self:ident, $options:ident, $field:ident, $key:expr) => {
+        if let Some(value) = $options.get($key) {
+            $self.$field = if value.is_null() {
+                None
+            } else {
+                Some(value.as_str().unwrap().to_string())
+            };
+        }
+    };
+}
+
+macro_rules! set_string {
+    ($self:ident, $options:ident, $field:ident, $key:expr) => {
+        if let Some(value) = $options.get($key) {
+            $self.$field = value.as_str().unwrap().to_string();
+        }
+    };
 }
 
 impl Configuration {
     pub fn new() -> Self {
         Self {
-            state: String::from("Working on {filename}"),
-            details: String::from("In {workspace}"),
+            base_icons_url: String::from("https://raw.githubusercontent.com/xhyrom/zed-discord-presence/feat/recognize-languages/assets/icons/"),
+            state: Some(String::from("Working on {filename}")),
+            details: Some(String::from("In {workspace}")),
+            large_image: Some(String::from("{base_icons_url}/{language}.png")),
+            large_text: Some(String::from("{language:u}")),
+            small_image: Some(String::from("{base_icons_url}/zed.png")),
+            small_text: Some(String::from("Zed")),
             git_integration: true,
         }
     }
 
     pub fn set(&mut self, initialization_options: Option<Value>) {
-        if initialization_options.is_none() {
-            return;
-        }
+        if let Some(options) = initialization_options {
+            set_string!(self, options, base_icons_url, "base_icons_url");
+            set_option!(self, options, state, "state");
+            set_option!(self, options, details, "details");
+            set_option!(self, options, large_image, "large_image");
+            set_option!(self, options, large_text, "large_text");
+            set_option!(self, options, small_image, "small_image");
+            set_option!(self, options, small_text, "small_text");
 
-        let initialization_options = initialization_options.unwrap();
-
-        if let Some(state) = initialization_options.get("state") {
-            self.state = state.as_str().unwrap().to_string();
-        }
-
-        if let Some(details) = initialization_options.get("details") {
-            self.details = details.as_str().unwrap().to_string();
-        }
-
-        if let Some(git_integration) = initialization_options.get("git_integration") {
-            self.git_integration = git_integration.as_bool().unwrap_or(true);
+            if let Some(git_integration) = options.get("git_integration") {
+                self.git_integration = git_integration.as_bool().unwrap_or(true);
+            }
         }
     }
 }

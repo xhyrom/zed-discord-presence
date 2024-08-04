@@ -23,9 +23,11 @@ use std::{
 };
 
 use discord_rich_presence::{
-    activity::{self, Assets, Button, Timestamps},
+    activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
+
+use crate::util;
 
 #[derive(Debug)]
 pub struct Discord {
@@ -64,30 +66,42 @@ impl Discord {
         return self.client.lock().expect("Failed to lock discord client");
     }
 
-    pub fn change_activity(&self, state: String, details: String, git_remote_url: Option<String>) {
+    #[allow(clippy::too_many_arguments)]
+    pub fn change_activity(
+        &self,
+        state: Option<String>,
+        details: Option<String>,
+        large_image: Option<String>,
+        large_text: Option<String>,
+        small_image: Option<String>,
+        small_text: Option<String>,
+        git_remote_url: Option<String>,
+    ) {
         let mut client = self.get_client();
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
 
-        let mut buttons: Vec<Button> = Vec::new();
+        let activity = Activity::new()
+            .timestamps(Timestamps::new().start(timestamp))
+            .buttons(
+                git_remote_url
+                    .as_ref()
+                    .map(|url| vec![Button::new("View Repository", url)])
+                    .unwrap_or_default(),
+            );
 
-        if let Some(git_remote_url) = git_remote_url.as_ref() {
-            buttons.push(Button::new("View Repository", git_remote_url));
-        }
+        let activity = util::set_optional_field(activity, state.as_deref(), Activity::state);
+        let activity = util::set_optional_field(activity, details.as_deref(), Activity::details);
+
+        let assets = Assets::new();
+        let assets = util::set_optional_field(assets, large_image.as_deref(), Assets::large_image);
+        let assets = util::set_optional_field(assets, large_text.as_deref(), Assets::large_text);
+        let assets = util::set_optional_field(assets, small_image.as_deref(), Assets::small_image);
+        let assets = util::set_optional_field(assets, small_text.as_deref(), Assets::small_text);
+
+        let activity = activity.assets(assets);
 
         client
-            .set_activity(
-                activity::Activity::new()
-                    .assets(Assets::new().large_image("logo"))
-                    .state(state.as_str())
-                    .details(details.as_str())
-                    .timestamps(Timestamps::new().start(timestamp))
-                    .buttons(buttons),
-            )
-            .unwrap_or_else(|_| {
-                println!(
-                    "Failed to set activity with state {} and details {}",
-                    state, details
-                )
-            });
+            .set_activity(activity)
+            .unwrap_or_else(|_| println!("Failed to set activity with activity"));
     }
 }

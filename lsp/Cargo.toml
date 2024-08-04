@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 discord-rich-presence = "0.2.4"
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.37.0", features = ["rt-multi-thread", "io-std", "macros"] }
 tower-lsp = "0.20.0"
-git2 = "0.19.0"
-serde_json = "1.0.122"
+git2 = { version = "0.19.0", default-features = false }
+serde_json = { version = "1.0.122", features = ["std"] }
+lazy_static = "1.5.0"
+regex = { version = "1.10.6", default-features = false, features = ["std", "perf"] }

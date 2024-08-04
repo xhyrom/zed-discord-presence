@@ -17,7 +17,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
+use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
@@ -27,10 +29,13 @@ use git::get_repository_and_remote;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use util::Placeholders;
 
 mod configuration;
 mod discord;
 mod git;
+mod languages;
+mod util;
 
 #[derive(Debug)]
 struct Document {
@@ -57,7 +62,15 @@ impl Document {
     }
 
     fn get_filename(&self) -> &str {
-        return self.path.file_name().unwrap().to_str().unwrap();
+        self.path.file_name().unwrap().to_str().unwrap()
+    }
+
+    fn get_extension(&self) -> &str {
+        self.path
+            .extension()
+            .unwrap_or(OsStr::new(""))
+            .to_str()
+            .unwrap()
     }
 }
 
@@ -74,15 +87,42 @@ impl Backend {
 
     async fn on_change(&self, doc: Document) {
         let config = self.get_config();
+        let workspace = self.get_workspace_file_name();
+        let placeholders = Placeholders::new(&doc, &config, workspace.deref());
 
-        let state = config.state.replace("{filename}", doc.get_filename());
+        let state = config
+            .state
+            .as_ref()
+            .map(|state| placeholders.replace(state));
         let details = config
             .details
-            .replace("{workspace}", &self.get_workspace_file_name());
+            .as_ref()
+            .map(|details| placeholders.replace(details));
+
+        let large_image = config
+            .large_image
+            .as_ref()
+            .map(|img| placeholders.replace(img));
+        let large_text = config
+            .large_text
+            .as_ref()
+            .map(|text| placeholders.replace(text));
+        let small_image = config
+            .small_image
+            .as_ref()
+            .map(|img| placeholders.replace(img));
+        let small_text = config
+            .small_text
+            .as_ref()
+            .map(|text| placeholders.replace(text));
 
         self.discord.change_activity(
             state,
             details,
+            large_image,
+            large_text,
+            small_image,
+            small_text,
             if config.git_integration {
                 self.get_git_remote_url()
             } else {
