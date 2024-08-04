@@ -34,6 +34,26 @@ pub struct Configuration {
     pub git_integration: bool,
 }
 
+macro_rules! set_option {
+    ($self:ident, $options:ident, $field:ident, $key:expr) => {
+        if let Some(value) = $options.get($key) {
+            $self.$field = if value.is_null() {
+                None
+            } else {
+                Some(value.as_str().unwrap().to_string())
+            };
+        }
+    };
+}
+
+macro_rules! set_string {
+    ($self:ident, $options:ident, $field:ident, $key:expr) => {
+        if let Some(value) = $options.get($key) {
+            $self.$field = value.as_str().unwrap().to_string();
+        }
+    };
+}
+
 impl Configuration {
     pub fn new() -> Self {
         Self {
@@ -49,42 +69,18 @@ impl Configuration {
     }
 
     pub fn set(&mut self, initialization_options: Option<Value>) {
-        if initialization_options.is_none() {
-            return;
-        }
+        if let Some(options) = initialization_options {
+            set_string!(self, options, base_icons_url, "base_icons_url");
+            set_string!(self, options, state, "state");
+            set_string!(self, options, details, "details");
+            set_option!(self, options, large_image, "large_image");
+            set_option!(self, options, large_text, "large_text");
+            set_option!(self, options, small_image, "small_image");
+            set_option!(self, options, small_text, "small_text");
 
-        let initialization_options = initialization_options.unwrap();
-
-        if let Some(base_icons_url) = initialization_options.get("base_icons_url") {
-            self.base_icons_url = base_icons_url.as_str().unwrap().to_string();
-        }
-
-        if let Some(state) = initialization_options.get("state") {
-            self.state = state.as_str().unwrap().to_string();
-        }
-
-        if let Some(details) = initialization_options.get("details") {
-            self.details = details.as_str().unwrap().to_string();
-        }
-
-        if let Some(large_image) = initialization_options.get("large_image") {
-            self.large_image = Some(large_image.as_str().unwrap().to_string())
-        }
-
-        if let Some(large_text) = initialization_options.get("large_text") {
-            self.large_text = Some(large_text.as_str().unwrap().to_string())
-        }
-
-        if let Some(small_image) = initialization_options.get("small_image") {
-            self.small_image = Some(small_image.as_str().unwrap().to_string())
-        }
-
-        if let Some(small_text) = initialization_options.get("small_text") {
-            self.small_text = Some(small_text.as_str().unwrap().to_string())
-        }
-
-        if let Some(git_integration) = initialization_options.get("git_integration") {
-            self.git_integration = git_integration.as_bool().unwrap_or(true);
+            if let Some(git_integration) = options.get("git_integration") {
+                self.git_integration = git_integration.as_bool().unwrap_or(true);
+            }
         }
     }
 }
