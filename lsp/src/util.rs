@@ -24,7 +24,7 @@ impl<'a> Placeholders<'a> {
         Self {
             filename: doc.get_filename(),
             workspace,
-            language: get_language(doc).unwrap(),
+            language: get_language(doc),
             base_icons_url: &config.base_icons_url,
         }
     }
