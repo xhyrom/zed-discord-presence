@@ -40,5 +40,5 @@ pub fn get_language(document: &Document) -> Option<String> {
         return Some(s.to_string());
     }
 
-    None
+    map.get("text").map(|s| s.to_string())
 }
