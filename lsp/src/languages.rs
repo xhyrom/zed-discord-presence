@@ -1,4 +1,5 @@
 use lazy_static::lazy_static;
+use regex::Regex;
 use serde_json::from_str;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -15,11 +16,29 @@ lazy_static! {
 
 pub fn get_language(document: &Document) -> Option<String> {
     let map = LANGUAGE_MAP.lock().unwrap();
+    let filename = document.get_filename().to_string();
+    let extension = format!(".{}", document.get_extension());
 
-    if let Some(s) = map.get(&document.get_filename().to_string()) {
+    if let Some(s) = map.get(&filename) {
         return Some(s.to_string());
     }
 
-    map.get(&format!(".{}", document.get_extension()))
-        .map(|s| s.to_string())
+    for (pattern, language) in map.iter() {
+        let pattern = pattern.strip_prefix("regex:");
+        if pattern.is_none() {
+            continue;
+        }
+
+        if let Ok(re) = Regex::new(pattern.unwrap()) {
+            if re.is_match(&filename) || re.is_match(&extension) {
+                return Some(language.to_string());
+            }
+        }
+    }
+
+    if let Some(s) = map.get(&extension) {
+        return Some(s.to_string());
+    }
+
+    None
 }
