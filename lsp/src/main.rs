@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -58,6 +59,15 @@ impl Document {
 
     fn get_filename(&self) -> &str {
         return self.path.file_name().unwrap().to_str().unwrap();
+    }
+
+    fn get_extension(&self) -> &str {
+        return self
+            .path
+            .extension()
+            .unwrap_or(OsStr::new(""))
+            .to_str()
+            .unwrap();
     }
 }
 
