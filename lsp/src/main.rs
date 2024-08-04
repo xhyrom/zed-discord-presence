@@ -94,24 +94,40 @@ impl Backend {
         let large_image = config.large_image.as_ref().map(|img| {
             img.replace("{base_icons_url}", &config.base_icons_url)
                 .replace(
-                    "{language_icon}",
+                    "{language}",
                     &get_language(&doc).unwrap_or(String::from("")),
                 )
+        });
+
+        let large_text = config.large_text.as_ref().map(|text| {
+            text.replace(
+                "{language}",
+                &get_language(&doc).unwrap_or(String::from("")),
+            )
         });
 
         let small_image = config.small_image.as_ref().map(|img| {
             img.replace("{base_icons_url}", &config.base_icons_url)
                 .replace(
-                    "{language_icon}",
+                    "{language}",
                     &get_language(&doc).unwrap_or(String::from("")),
                 )
+        });
+
+        let small_text = config.small_text.as_ref().map(|text| {
+            text.replace(
+                "{language}",
+                &get_language(&doc).unwrap_or(String::from("")),
+            )
         });
 
         self.discord.change_activity(
             state,
             details,
             large_image,
+            large_text,
             small_image,
+            small_text,
             if config.git_integration {
                 self.get_git_remote_url()
             } else {

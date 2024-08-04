@@ -25,8 +25,12 @@ pub struct Configuration {
 
     pub state: String,
     pub details: String,
+
     pub large_image: Option<String>,
+    pub large_text: Option<String>,
     pub small_image: Option<String>,
+    pub small_text: Option<String>,
+
     pub git_integration: bool,
 }
 
@@ -36,8 +40,10 @@ impl Configuration {
             base_icons_url: String::from("https://raw.githubusercontent.com/xhyrom/zed-discord-presence/feat/recognize-languages/assets/icons/"),
             state: String::from("Working on {filename}"),
             details: String::from("In {workspace}"),
-            large_image: Some(String::from("{base_icons_url}/{language_icon}.png")),
+            large_image: Some(String::from("{base_icons_url}/{language}.png")),
+            large_text: Some(String::from("{language}")),
             small_image: Some(String::from("{base_icons_url}/zed.png")),
+            small_text: Some(String::from("Zed")),
             git_integration: true,
         }
     }
@@ -65,8 +71,16 @@ impl Configuration {
             self.large_image = Some(large_image.as_str().unwrap().to_string())
         }
 
+        if let Some(large_text) = initialization_options.get("large_text") {
+            self.large_text = Some(large_text.as_str().unwrap().to_string())
+        }
+
         if let Some(small_image) = initialization_options.get("small_image") {
             self.small_image = Some(small_image.as_str().unwrap().to_string())
+        }
+
+        if let Some(small_text) = initialization_options.get("small_text") {
+            self.small_text = Some(small_text.as_str().unwrap().to_string())
         }
 
         if let Some(git_integration) = initialization_options.get("git_integration") {

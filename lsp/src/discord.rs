@@ -69,7 +69,9 @@ impl Discord {
         state: String,
         details: String,
         large_image: Option<String>,
+        large_text: Option<String>,
         small_image: Option<String>,
+        small_text: Option<String>,
         git_remote_url: Option<String>,
     ) {
         let mut client = self.get_client();
@@ -81,8 +83,16 @@ impl Discord {
             assets = assets.large_image(large_image);
         }
 
+        if let Some(large_text) = large_text.as_ref() {
+            assets = assets.large_text(large_text);
+        }
+
         if let Some(small_image) = small_image.as_ref() {
             assets = assets.small_image(small_image);
+        }
+
+        if let Some(small_text) = small_text.as_ref() {
+            assets = assets.small_text(small_text);
         }
 
         let mut buttons: Vec<Button> = Vec::new();

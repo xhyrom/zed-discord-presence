@@ -29,7 +29,7 @@ You can configure state, details and git integration by changing Discord Presenc
         "state": "Working on {filename}",
         "details": "In {workspace}",
         // URL for large image
-        "large_image": "{base_icons_url}/{language_icon}.png",
+        "large_image": "{base_icons_url}/{language}.png",
         // URL for small image
         "small_image": "{base_icons_url}/zed.png",
         "git_integration": true
