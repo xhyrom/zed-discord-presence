@@ -21,16 +21,23 @@ use serde_json::Value;
 
 #[derive(Debug)]
 pub struct Configuration {
+    pub base_icons_url: String,
+
     pub state: String,
     pub details: String,
+    pub large_image: Option<String>,
+    pub small_image: Option<String>,
     pub git_integration: bool,
 }
 
 impl Configuration {
     pub fn new() -> Self {
         Self {
+            base_icons_url: String::from("https://raw.githubusercontent.com/xhyrom/zed-discord-presence/feat/recognize-languages/assets/icons/"),
             state: String::from("Working on {filename}"),
             details: String::from("In {workspace}"),
+            large_image: Some(String::from("{base_icons_url}/{language_icon}.png")),
+            small_image: Some(String::from("{base_icons_url}/zed.png")),
             git_integration: true,
         }
     }
@@ -42,12 +49,24 @@ impl Configuration {
 
         let initialization_options = initialization_options.unwrap();
 
+        if let Some(base_icons_url) = initialization_options.get("base_icons_url") {
+            self.base_icons_url = base_icons_url.as_str().unwrap().to_string();
+        }
+
         if let Some(state) = initialization_options.get("state") {
             self.state = state.as_str().unwrap().to_string();
         }
 
         if let Some(details) = initialization_options.get("details") {
             self.details = details.as_str().unwrap().to_string();
+        }
+
+        if let Some(large_image) = initialization_options.get("large_image") {
+            self.large_image = Some(large_image.as_str().unwrap().to_string())
+        }
+
+        if let Some(small_image) = initialization_options.get("small_image") {
+            self.small_image = Some(small_image.as_str().unwrap().to_string())
         }
 
         if let Some(git_integration) = initialization_options.get("git_integration") {

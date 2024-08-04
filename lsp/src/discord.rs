@@ -64,9 +64,26 @@ impl Discord {
         return self.client.lock().expect("Failed to lock discord client");
     }
 
-    pub fn change_activity(&self, state: String, details: String, git_remote_url: Option<String>) {
+    pub fn change_activity(
+        &self,
+        state: String,
+        details: String,
+        large_image: Option<String>,
+        small_image: Option<String>,
+        git_remote_url: Option<String>,
+    ) {
         let mut client = self.get_client();
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
+
+        let mut assets = Assets::new();
+
+        if let Some(large_image) = large_image.as_ref() {
+            assets = assets.large_image(large_image);
+        }
+
+        if let Some(small_image) = small_image.as_ref() {
+            assets = assets.small_image(small_image);
+        }
 
         let mut buttons: Vec<Button> = Vec::new();
 
@@ -77,7 +94,7 @@ impl Discord {
         client
             .set_activity(
                 activity::Activity::new()
-                    .assets(Assets::new().large_image("logo"))
+                    .assets(assets)
                     .state(state.as_str())
                     .details(details.as_str())
                     .timestamps(Timestamps::new().start(timestamp))

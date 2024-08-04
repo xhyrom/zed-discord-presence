@@ -119,6 +119,7 @@ version = "0.3.0"
 dependencies = [
  "discord-rich-presence",
  "git2",
+ "lazy_static",
  "serde_json",
  "tokio",
  "tower-lsp",
@@ -328,6 +329,12 @@ checksum = "d2b099aaa34a9751c5bf0878add70444e1ed2dd73f347be99003d4577277de6e"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "leb128"

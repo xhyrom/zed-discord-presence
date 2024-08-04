@@ -25,6 +25,7 @@ use std::sync::{Mutex, MutexGuard};
 use configuration::Configuration;
 use discord::Discord;
 use git::get_repository_and_remote;
+use languages::get_language;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -32,6 +33,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 mod configuration;
 mod discord;
 mod git;
+mod languages;
 
 #[derive(Debug)]
 struct Document {
@@ -58,16 +60,15 @@ impl Document {
     }
 
     fn get_filename(&self) -> &str {
-        return self.path.file_name().unwrap().to_str().unwrap();
+        self.path.file_name().unwrap().to_str().unwrap()
     }
 
     fn get_extension(&self) -> &str {
-        return self
-            .path
+        self.path
             .extension()
             .unwrap_or(OsStr::new(""))
             .to_str()
-            .unwrap();
+            .unwrap()
     }
 }
 
@@ -90,9 +91,27 @@ impl Backend {
             .details
             .replace("{workspace}", &self.get_workspace_file_name());
 
+        let large_image = config.large_image.as_ref().map(|img| {
+            img.replace("{base_icons_url}", &config.base_icons_url)
+                .replace(
+                    "{language_icon}",
+                    &get_language(&doc).unwrap_or(String::from("")),
+                )
+        });
+
+        let small_image = config.small_image.as_ref().map(|img| {
+            img.replace("{base_icons_url}", &config.base_icons_url)
+                .replace(
+                    "{language_icon}",
+                    &get_language(&doc).unwrap_or(String::from("")),
+                )
+        });
+
         self.discord.change_activity(
             state,
             details,
+            large_image,
+            small_image,
             if config.git_integration {
                 self.get_git_remote_url()
             } else {
