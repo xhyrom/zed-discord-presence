@@ -20,9 +20,6 @@ pub fn get_language(document: &Document) -> Option<String> {
         return Some(s.to_string());
     }
 
-    if let Some(s) = map.get(&format!(".{}", document.get_extension())) {
-        return Some(s.to_string());
-    }
-
-    None
+    map.get(&format!(".{}", document.get_extension()))
+        .map(|s| s.to_string())
 }
