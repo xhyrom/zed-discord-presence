@@ -57,7 +57,9 @@ macro_rules! set_string {
 impl Configuration {
     pub fn new() -> Self {
         Self {
-            base_icons_url: String::from("https://raw.githubusercontent.com/xhyrom/zed-discord-presence/feat/recognize-languages/assets/icons/"),
+            base_icons_url: String::from(
+                "https://raw.githubusercontent.com/xhyrom/zed-discord-presence/main/assets/icons/",
+            ),
             state: Some(String::from("Working on {filename}")),
             details: Some(String::from("In {workspace}")),
             large_image: Some(String::from("{base_icons_url}/{language}.png")),

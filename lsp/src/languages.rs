@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde_json::from_str;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -29,7 +29,10 @@ pub fn get_language(document: &Document) -> String {
             continue;
         }
 
-        if let Ok(re) = Regex::new(pattern.unwrap()) {
+        if let Ok(re) = RegexBuilder::new(pattern.unwrap())
+            .case_insensitive(true)
+            .build()
+        {
             if re.is_match(&filename) || re.is_match(&extension) {
                 return language.to_string();
             }

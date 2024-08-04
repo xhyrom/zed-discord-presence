@@ -24,7 +24,7 @@ You can configure state, details and git integration by changing Discord Presenc
     "discord_presence": {
       "initialization_options": {
         // Base url for all language icons
-        "base_icons_url": "https://raw.githubusercontent.com/xhyrom/zed-discord-presence/feat/recognize-languages/assets/icons/",
+        "base_icons_url": "https://raw.githubusercontent.com/xhyrom/zed-discord-presence/main/assets/icons/",
 
         "state": "Working on {filename}",
         "details": "In {workspace}",
