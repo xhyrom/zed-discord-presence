@@ -30,11 +30,15 @@ You can configure state, details and git integration by changing Discord Presenc
         "details": "In {workspace}",
         // URL for large image
         "large_image": "{base_icons_url}/{language}.png",
+        "large_text": "{language:u}", // :u makes first letter upper-case
         // URL for small image
         "small_image": "{base_icons_url}/zed.png",
+        "small_text": "Zed",
         "git_integration": true
       }
     }
   }
 }
 ```
+
+You can also use `null` to unset the option. Possible for everything except `base_icons_url` and `git_integration`

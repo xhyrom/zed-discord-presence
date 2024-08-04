@@ -23,8 +23,8 @@ use serde_json::Value;
 pub struct Configuration {
     pub base_icons_url: String,
 
-    pub state: String,
-    pub details: String,
+    pub state: Option<String>,
+    pub details: Option<String>,
 
     pub large_image: Option<String>,
     pub large_text: Option<String>,
@@ -58,10 +58,10 @@ impl Configuration {
     pub fn new() -> Self {
         Self {
             base_icons_url: String::from("https://raw.githubusercontent.com/xhyrom/zed-discord-presence/feat/recognize-languages/assets/icons/"),
-            state: String::from("Working on {filename}"),
-            details: String::from("In {workspace}"),
+            state: Some(String::from("Working on {filename}")),
+            details: Some(String::from("In {workspace}")),
             large_image: Some(String::from("{base_icons_url}/{language}.png")),
-            large_text: Some(String::from("{language}")),
+            large_text: Some(String::from("{language:u}")),
             small_image: Some(String::from("{base_icons_url}/zed.png")),
             small_text: Some(String::from("Zed")),
             git_integration: true,
@@ -71,8 +71,8 @@ impl Configuration {
     pub fn set(&mut self, initialization_options: Option<Value>) {
         if let Some(options) = initialization_options {
             set_string!(self, options, base_icons_url, "base_icons_url");
-            set_string!(self, options, state, "state");
-            set_string!(self, options, details, "details");
+            set_option!(self, options, state, "state");
+            set_option!(self, options, details, "details");
             set_option!(self, options, large_image, "large_image");
             set_option!(self, options, large_text, "large_text");
             set_option!(self, options, small_image, "small_image");

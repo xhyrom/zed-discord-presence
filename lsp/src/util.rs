@@ -1,5 +1,17 @@
 use crate::{configuration::Configuration, languages::get_language, Document};
 
+macro_rules! replace_with_capitalization {
+    ($text:expr, $($placeholder:expr => $value:expr),*) => {{
+        let mut result = $text.to_string();
+        $(
+            let capitalized = capitalize_first_letter($value);
+            result = result.replace(concat!("{", $placeholder, "}"), $value)
+                           .replace(concat!("{", $placeholder, ":u}"), &capitalized);
+        )*
+        result
+    }};
+}
+
 pub struct Placeholders<'a> {
     filename: &'a str,
     workspace: &'a str,
@@ -18,10 +30,13 @@ impl<'a> Placeholders<'a> {
     }
 
     pub fn replace(&self, text: &str) -> String {
-        text.replace("{filename}", self.filename)
-            .replace("{workspace}", self.workspace)
-            .replace("{language}", self.language.as_str())
-            .replace("{base_icons_url}", self.base_icons_url)
+        replace_with_capitalization!(
+            text,
+            "filename" => self.filename,
+            "workspace" => self.workspace,
+            "language" => self.language.as_str(),
+            "base_icons_url" => self.base_icons_url
+        )
     }
 }
 
@@ -33,4 +48,12 @@ where
         obj = setter(obj, value);
     }
     obj
+}
+
+fn capitalize_first_letter(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
 }

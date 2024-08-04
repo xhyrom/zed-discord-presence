@@ -90,8 +90,14 @@ impl Backend {
         let workspace = self.get_workspace_file_name();
         let placeholders = Placeholders::new(&doc, &config, workspace.deref());
 
-        let state = placeholders.replace(&config.state);
-        let details = placeholders.replace(&config.details);
+        let state = config
+            .state
+            .as_ref()
+            .map(|state| placeholders.replace(state));
+        let details = config
+            .details
+            .as_ref()
+            .map(|details| placeholders.replace(details));
 
         let large_image = config
             .large_image
