@@ -3,7 +3,7 @@
   "package.json": "npm",
   "turbo.json": "turbo",
   "regex:(vercel|now)\\.json": "vercel",
-  "regex:(?i)\\.prettier((rc)|(\\.(toml|yml|yaml|json|js))?)$": "prettier",
+  "regex:\\.prettier((rc)|(\\.(toml|yml|yaml|json|js))?)$": "prettier",
   "regex:\\.eslint((rc|ignore)|(\\.(json|js))?)$": "eslint",
   "regex:\\.(now|vercel)ignore$": "vercel",
   "regex:prettier\\.config\\.js$": "prettier",
