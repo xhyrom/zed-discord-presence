@@ -34,6 +34,7 @@ mod configuration;
 mod discord;
 mod git;
 mod languages;
+mod util;
 
 #[derive(Debug)]
 struct Document {

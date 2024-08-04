@@ -27,6 +27,8 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 
+use crate::util;
+
 #[derive(Debug)]
 pub struct Discord {
     client: Mutex<DiscordIpcClient>,
@@ -77,29 +79,16 @@ impl Discord {
         let mut client = self.get_client();
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
 
-        let mut assets = Assets::new();
+        let assets = Assets::new();
+        let assets = util::set_optional_field(assets, large_image.as_deref(), Assets::large_image);
+        let assets = util::set_optional_field(assets, large_text.as_deref(), Assets::large_text);
+        let assets = util::set_optional_field(assets, small_image.as_deref(), Assets::small_image);
+        let assets = util::set_optional_field(assets, small_text.as_deref(), Assets::small_text);
 
-        if let Some(large_image) = large_image.as_ref() {
-            assets = assets.large_image(large_image);
-        }
-
-        if let Some(large_text) = large_text.as_ref() {
-            assets = assets.large_text(large_text);
-        }
-
-        if let Some(small_image) = small_image.as_ref() {
-            assets = assets.small_image(small_image);
-        }
-
-        if let Some(small_text) = small_text.as_ref() {
-            assets = assets.small_text(small_text);
-        }
-
-        let mut buttons: Vec<Button> = Vec::new();
-
-        if let Some(git_remote_url) = git_remote_url.as_ref() {
-            buttons.push(Button::new("View Repository", git_remote_url));
-        }
+        let buttons = git_remote_url
+            .as_ref()
+            .map(|url| vec![Button::new("View Repository", url)])
+            .unwrap_or_default();
 
         client
             .set_activity(
