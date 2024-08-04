@@ -19,16 +19,17 @@
 
 use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use configuration::Configuration;
 use discord::Discord;
 use git::get_repository_and_remote;
-use languages::get_language;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use util::Placeholders;
 
 mod configuration;
 mod discord;
@@ -86,41 +87,28 @@ impl Backend {
 
     async fn on_change(&self, doc: Document) {
         let config = self.get_config();
+        let workspace = self.get_workspace_file_name();
+        let placeholders = Placeholders::new(&doc, &config, workspace.deref());
 
-        let state = config.state.replace("{filename}", doc.get_filename());
-        let details = config
-            .details
-            .replace("{workspace}", &self.get_workspace_file_name());
+        let state = placeholders.replace(&config.state);
+        let details = placeholders.replace(&config.details);
 
-        let large_image = config.large_image.as_ref().map(|img| {
-            img.replace("{base_icons_url}", &config.base_icons_url)
-                .replace(
-                    "{language}",
-                    &get_language(&doc).unwrap_or(String::from("")),
-                )
-        });
-
-        let large_text = config.large_text.as_ref().map(|text| {
-            text.replace(
-                "{language}",
-                &get_language(&doc).unwrap_or(String::from("")),
-            )
-        });
-
-        let small_image = config.small_image.as_ref().map(|img| {
-            img.replace("{base_icons_url}", &config.base_icons_url)
-                .replace(
-                    "{language}",
-                    &get_language(&doc).unwrap_or(String::from("")),
-                )
-        });
-
-        let small_text = config.small_text.as_ref().map(|text| {
-            text.replace(
-                "{language}",
-                &get_language(&doc).unwrap_or(String::from("")),
-            )
-        });
+        let large_image = config
+            .large_image
+            .as_ref()
+            .map(|img| placeholders.replace(img));
+        let large_text = config
+            .large_text
+            .as_ref()
+            .map(|text| placeholders.replace(text));
+        let small_image = config
+            .small_image
+            .as_ref()
+            .map(|img| placeholders.replace(img));
+        let small_text = config
+            .small_text
+            .as_ref()
+            .map(|text| placeholders.replace(text));
 
         self.discord.change_activity(
             state,
