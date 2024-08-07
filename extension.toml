@@ -4,7 +4,7 @@ version = "0.2.0"
 schema_version = 1
 authors = ["Jozef Steinhübl <contact@xhyrom.dev>"]
 description = "Presence for your beautiful discord account :)"
-repository = "https://git.sr.ht/~hyro/zed-discord-presence"
+repository = "https://github.com/xhyrom/zed-discord-presence"
 
 [language_servers.discord_presence]
 name = "Discord Presence LSP"

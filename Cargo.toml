@@ -3,7 +3,7 @@ name = "zed-discord-presence"
 version = "0.1.0"
 edition = "2021"
 license-file = "LICENSE"
-repository = "https://git.sr.ht/~hyro/zed-discord-presence"
+repository = "https://github.com/xhyrom/zed-discord-presence"
 
 [lib]
 path = "src/discord_presence.rs"
