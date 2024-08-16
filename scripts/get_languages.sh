@@ -3,7 +3,7 @@
 fetch_files() {
     local repo_owner=$1
     local repo_name=$2
-    curl -s "https://api.github.com/repos/$repo_owner/$repo_name/git/trees/main?recursive=1" -H "Authorization: Bearer ${GITHUB_TOKEN}" | jq -c -r '.tree[] | .path'
+    curl -Ls "https://api.github.com/repos/$repo_owner/$repo_name/git/trees/HEAD?recursive=1" -H "Authorization: Bearer ${GITHUB_TOKEN}" | jq -c -r '.tree[] | .path'
 }
 
 process_language_files() {
@@ -25,7 +25,7 @@ process_language_files() {
             continue
         fi
 
-        name=$(curl -s "https://raw.githubusercontent.com/$repo_owner/$repo_name/main/${file}" | grep -oP '^name = "\K[^"]*')
+        name=$(curl -s "https://raw.githubusercontent.com/$repo_owner/$repo_name/HEAD/${file}" | grep -oP '^name = "\K[^"]*')
         id="${file%/config.toml}"
         id="${id##*/}"
 
