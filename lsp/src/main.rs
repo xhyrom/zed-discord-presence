@@ -21,6 +21,7 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::process::exit;
 use std::sync::{Mutex, MutexGuard};
 
 use configuration::Configuration;
@@ -155,9 +156,6 @@ impl Backend {
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // Connect discord client
-        self.discord.connect();
-
         // Set workspace name
         let root_uri = params.root_uri.expect("Failed to get root uri");
         let workspace_path = Path::new(root_uri.path());
@@ -177,6 +175,18 @@ impl LanguageServer for Backend {
 
         let mut config = self.config.lock().unwrap();
         config.set(params.initialization_options);
+
+        if config.rules.suitable(
+            workspace_path
+                .to_str()
+                .expect("Failed to transform workspace path to str"),
+        ) {
+            // Connect discord client
+            self.discord.connect();
+        } else {
+            // Exit LSP
+            exit(0);
+        }
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
