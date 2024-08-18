@@ -34,6 +34,15 @@ You can configure state, details and git integration by changing Discord Presenc
         // URL for small image
         "small_image": "{base_icons_url}/zed.png",
         "small_text": "Zed",
+
+        // Rules - disable presence in some workspaces
+        "rules": {
+          "mode": "blacklist" // or whitelist
+          "paths": [
+            "absolute path"
+          ]
+        },
+
         "git_integration": true
       }
     }
@@ -41,4 +50,4 @@ You can configure state, details and git integration by changing Discord Presenc
 }
 ```
 
-You can also use `null` to unset the option. Possible for everything except `base_icons_url` and `git_integration`
+You can also use `null` to unset the option. Possible for everything except `base_icons_url`, `rules` and `git_integration`
