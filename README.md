@@ -37,7 +37,7 @@ You can configure state, details and git integration by changing Discord Presenc
 
         // Rules - disable presence in some workspaces
         "rules": {
-          "mode": "blacklist" // or whitelist
+          "mode": "blacklist", // or whitelist
           "paths": [
             "absolute path"
           ]
