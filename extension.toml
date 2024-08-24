@@ -1,4 +1,4 @@
-id = "discord_presence"
+id = "discord-presence"
 name = "Discord Presence"
 version = "0.2.0"
 schema_version = 1
