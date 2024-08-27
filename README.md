@@ -9,10 +9,18 @@ The easiest way to get [rust](https://rust-lang.org) is by using [rustup](https:
 
 ### How to install?
 
+Since [zed-industries/extensions#1217](https://github.com/zed-industries/extensions/pull/1217) has been merged, you can simply download the extension in <kbd>zed: extensions</kbd>.
+Don't forget to give at least a ⭐ if you like this project :D
+
+<details>
+<summary>Dev installation</summary>
+
 1. Clone this repository
 2. <kbd>CTRL</kbd> + <kbd>SHIFT</kbd> + <kbd>P</kbd> and select <kbd>zed: install dev extension</kbd>
 3. Choose the directory where you cloned this repository
 4. Enjoy :)
+
+</details>
 
 ## How to configure?
 
