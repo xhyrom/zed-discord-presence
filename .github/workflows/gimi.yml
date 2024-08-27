@@ -1,0 +1,33 @@
+name: gimi
+on: [push, delete]
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          set +x
+
+          git remote add gimi-sourcehut git@git.sr.ht:~hyro/zed-discord-presence
+          ssh-keyscan git.sr.ht >> ~/.ssh/known_hosts
+          echo -e "$SOURCEHUT" >> ~/.ssh/gimi-sourcehut
+          chmod 600 ~/.ssh/gimi-sourcehut
+          echo -e "Host git.sr.ht\nUser git\nIdentityFile ${HOME}/.ssh/gimi-sourcehut" >> ~/.ssh/config
+          git push -f --all gimi-sourcehut
+          git push -f --tags gimi-sourcehut
+
+          git remote add gimi-codeberg git@codeberg.org:xHyroM/zed-discord-presence.git
+          ssh-keyscan codeberg.org >> ~/.ssh/known_hosts
+          echo -e "$CODEBERG" >> ~/.ssh/gimi-codeberg
+          chmod 600 ~/.ssh/gimi-codeberg
+          echo -e "Host codeberg.org\nUser git\nIdentityFile ${HOME}/.ssh/gimi-codeberg" >> ~/.ssh/config
+          git push -f --all gimi-codeberg
+          git push -f --tags gimi-codeberg
+
+          set -x
+        env:
+          SOURCEHUT: ${{ secrets.SOURCEHUT }}
+          CODEBERG: ${{ secrets.CODEBERG }}
