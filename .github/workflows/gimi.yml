@@ -6,9 +6,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        if: github.event_name != 'pull_request'
         with:
           fetch-depth: 0
-      - run: |
+      - if: github.event_name != 'pull_request'
+        run: |
           set +x
 
           mkdir ~/.ssh -p
