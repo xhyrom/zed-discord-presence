@@ -11,6 +11,8 @@ jobs:
       - run: |
           set +x
 
+          mkdir ~/.ssh -p
+
           git remote add gimi-sourcehut git@git.sr.ht:~hyro/zed-discord-presence
           ssh-keyscan git.sr.ht >> ~/.ssh/known_hosts
           echo -e "$SOURCEHUT" >> ~/.ssh/gimi-sourcehut
