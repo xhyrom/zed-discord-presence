@@ -118,6 +118,7 @@
   ".dmm": "dm",
   "regex:^(Dockerfile|docker-compose|\\.docker(file|ignore))$": "docker",
   "regex:^docker-sync\\.yml$": "docker",
+  ".edge": "edge",
   ".editorconfig": "editorconfig",
   ".ejs": "ejs",
   ".ex": "elixir",
