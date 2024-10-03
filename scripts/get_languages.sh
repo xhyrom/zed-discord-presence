@@ -39,6 +39,11 @@ process_language_files() {
     done
 }
 
+hardcoded_languages() {
+    LANGUAGES+="    \"edge\",\n"
+    LANGUAGE_IDS+=" \"edge\" = \"edge\","
+}
+
 RESPONSE=$(curl -s "https://api.github.com/repos/zed-industries/zed/git/trees/main?recursive=1" -H "Authorization: Bearer ${GITHUB_TOKEN}")
 EXTENSIONS_RESPONSE=$(curl -s "https://raw.githubusercontent.com/zed-industries/extensions/main/.gitmodules")
 REPOSITORIES=($(echo "$EXTENSIONS_RESPONSE" | grep -oP 'url = \K.*'))
@@ -58,6 +63,8 @@ done
 
 echo "Processing zed-industries/zed"
 process_language_files "$FILES" "zed-industries" "zed" "crates/languages/src/**/config.toml" "extensions/**/languages/**/config.toml"
+
+hardcoded_languages
 
 LANGUAGES+="]"
 LANGUAGE_IDS+="}"
