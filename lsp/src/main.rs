@@ -221,15 +221,8 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let doc = Document::new(params.text_document.uri);
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("Discord Presence LL OPEN! {}", doc.get_filename()),
-            )
+        self.on_change(Document::new(params.text_document.uri))
             .await;
-
-        self.on_change(doc).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
