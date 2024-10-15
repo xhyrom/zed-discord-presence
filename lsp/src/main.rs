@@ -62,8 +62,11 @@ impl Document {
         }
     }
 
-    fn get_filename(&self) -> &str {
-        self.path.file_name().unwrap().to_str().unwrap()
+    fn get_filename(&self) -> String {
+        let filename = self.path.file_name().unwrap().to_str().unwrap();
+        let filename = urlencoding::decode(filename).unwrap();
+
+        filename.to_string()
     }
 
     fn get_extension(&self) -> &str {
@@ -218,8 +221,15 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.on_change(Document::new(params.text_document.uri))
+        let doc = Document::new(params.text_document.uri);
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Discord Presence LL OPEN! {}", doc.get_filename()),
+            )
             .await;
+
+        self.on_change(doc).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {

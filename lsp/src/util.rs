@@ -13,7 +13,7 @@ macro_rules! replace_with_capitalization {
 }
 
 pub struct Placeholders<'a> {
-    filename: &'a str,
+    filename: String,
     workspace: &'a str,
     language: String,
     base_icons_url: &'a str,
@@ -32,7 +32,7 @@ impl<'a> Placeholders<'a> {
     pub fn replace(&self, text: &str) -> String {
         replace_with_capitalization!(
             text,
-            "filename" => self.filename,
+            "filename" => self.filename.as_str(),
             "workspace" => self.workspace,
             "language" => self.language.as_str(),
             "base_icons_url" => self.base_icons_url
