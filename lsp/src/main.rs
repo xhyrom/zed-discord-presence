@@ -62,8 +62,11 @@ impl Document {
         }
     }
 
-    fn get_filename(&self) -> &str {
-        self.path.file_name().unwrap().to_str().unwrap()
+    fn get_filename(&self) -> String {
+        let filename = self.path.file_name().unwrap().to_str().unwrap();
+        let filename = urlencoding::decode(filename).unwrap();
+
+        filename.to_string()
     }
 
     fn get_extension(&self) -> &str {
