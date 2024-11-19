@@ -31,6 +31,8 @@ You can configure state, details and git integration by changing Discord Presenc
   "lsp": {
     "discord_presence": {
       "initialization_options": {
+        // application id for the rich presence (required, keep it if you don't know what you're doing)
+        "application_id": "1263505205522337886"
         // Base url for all language icons
         "base_icons_url": "https://raw.githubusercontent.com/xhyrom/zed-discord-presence/main/assets/icons/",
 
