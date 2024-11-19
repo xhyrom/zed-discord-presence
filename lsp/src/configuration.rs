@@ -54,6 +54,7 @@ impl Rules {
 
 #[derive(Debug)]
 pub struct Configuration {
+    pub application_id: String,
     pub base_icons_url: String,
 
     pub state: Option<String>,
@@ -92,6 +93,7 @@ macro_rules! set_string {
 impl Configuration {
     pub fn new() -> Self {
         Self {
+            application_id: String::from("1263505205522337886"),
             base_icons_url: String::from(
                 "https://raw.githubusercontent.com/xhyrom/zed-discord-presence/main/assets/icons/",
             ),
@@ -108,6 +110,7 @@ impl Configuration {
 
     pub fn set(&mut self, initialization_options: Option<Value>) {
         if let Some(options) = initialization_options {
+            set_string!(self, options, application_id, "application_id");
             set_string!(self, options, base_icons_url, "base_icons_url");
             set_option!(self, options, state, "state");
             set_option!(self, options, details, "details");

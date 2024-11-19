@@ -45,8 +45,8 @@ struct Document {
 
 #[derive(Debug)]
 struct Backend {
-    discord: discord::Discord,
     client: Client,
+    discord: Mutex<Discord>,
     workspace_file_name: Mutex<String>,
     git_remote_url: Mutex<Option<String>>,
     config: Mutex<Configuration>,
@@ -82,7 +82,7 @@ impl Backend {
     fn new(client: Client) -> Self {
         Self {
             client,
-            discord: Discord::new(),
+            discord: Mutex::new(Discord::new()),
             workspace_file_name: Mutex::new(String::new()),
             git_remote_url: Mutex::new(None),
             config: Mutex::new(Configuration::new()),
@@ -120,7 +120,7 @@ impl Backend {
             .as_ref()
             .map(|text| placeholders.replace(text));
 
-        self.discord.change_activity(
+        self.get_discord().change_activity(
             state,
             details,
             large_image,
@@ -154,6 +154,10 @@ impl Backend {
     fn get_config(&self) -> MutexGuard<Configuration> {
         return self.config.lock().expect("Failed to lock config");
     }
+
+    fn get_discord(&self) -> MutexGuard<Discord> {
+        return self.discord.lock().expect("Failed to lock discord");
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -179,13 +183,16 @@ impl LanguageServer for Backend {
         let mut config = self.config.lock().unwrap();
         config.set(params.initialization_options);
 
+        let mut discord = self.get_discord();
+        discord.create_client(config.application_id.to_string());
+
         if config.rules.suitable(
             workspace_path
                 .to_str()
                 .expect("Failed to transform workspace path to str"),
         ) {
             // Connect discord client
-            self.discord.connect();
+            discord.connect();
         } else {
             // Exit LSP
             exit(0);
@@ -215,7 +222,7 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        self.discord.kill();
+        self.get_discord().kill();
 
         Ok(())
     }
