@@ -31,23 +31,28 @@ use crate::util;
 
 #[derive(Debug)]
 pub struct Discord {
-    client: Mutex<DiscordIpcClient>,
+    client: Option<Mutex<DiscordIpcClient>>,
     start_timestamp: Duration,
 }
 
 impl Discord {
     pub fn new() -> Self {
-        let discord_client = DiscordIpcClient::new("1263505205522337886")
-            .expect("Failed to initialize Discord Ipc Client");
         let start_timestamp = SystemTime::now();
         let since_epoch = start_timestamp
             .duration_since(UNIX_EPOCH)
             .expect("Failed to get duration since UNIX_EPOCH");
 
         Self {
-            client: Mutex::new(discord_client),
+            client: None,
             start_timestamp: since_epoch,
         }
+    }
+
+    pub fn create_client(&mut self, application_id: String) {
+        let discord_client = DiscordIpcClient::new(application_id.as_str())
+            .expect("Failed to initialize Discord Ipc Client");
+
+        self.client = Some(Mutex::new(discord_client));
     }
 
     pub fn connect(&self) {
@@ -62,8 +67,12 @@ impl Discord {
         result.unwrap();
     }
 
-    pub fn get_client(&self) -> MutexGuard<DiscordIpcClient> {
-        return self.client.lock().expect("Failed to lock discord client");
+    pub fn get_client(&self) -> MutexGuard<'_, DiscordIpcClient> {
+        self.client
+            .as_ref()
+            .expect("Discord client not initialized")
+            .lock()
+            .expect("Failed to lock discord client")
     }
 
     #[allow(clippy::too_many_arguments)]
