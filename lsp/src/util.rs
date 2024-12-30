@@ -36,21 +36,16 @@ impl<'a> Placeholders<'a> {
     }
 
     pub fn replace(&self, text: &str) -> String {
-        let mut result = text.to_string();
+        let filename = self.filename.as_deref().unwrap_or("filename");
+        let language = self.language.as_deref().unwrap_or("language");
 
-        if let Some(filename) = &self.filename {
-            result = replace_with_capitalization!(result, "filename" => filename.as_str());
-        }
-
-        result = replace_with_capitalization!(result, "workspace" => self.workspace);
-
-        if let Some(language) = &self.language {
-            result = replace_with_capitalization!(result, "language" => language.as_str());
-        }
-
-        result = replace_with_capitalization!(result, "base_icons_url" => self.base_icons_url);
-
-        result
+        replace_with_capitalization!(
+            text,
+            "filename" => filename,
+            "workspace" => self.workspace,
+            "language" => language,
+            "base_icons_url" => self.base_icons_url
+        )
     }
 }
 
