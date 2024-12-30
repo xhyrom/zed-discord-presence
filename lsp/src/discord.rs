@@ -17,10 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use std::{
-    sync::{Mutex, MutexGuard},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::{Mutex, MutexGuard};
 
 use discord_rich_presence::{
     activity::{Activity, Assets, Button, Timestamps},
@@ -55,28 +53,35 @@ impl Discord {
         self.client = Some(Mutex::new(discord_client));
     }
 
-    pub fn connect(&self) {
-        let mut client = self.get_client();
+    pub async fn connect(&self) {
+        let mut client = self.get_client().await;
         let result = client.connect();
         result.unwrap();
     }
 
-    pub fn kill(&self) {
-        let mut client = self.get_client();
+    pub async fn kill(&self) {
+        let mut client = self.get_client().await;
         let result = client.close();
         result.unwrap();
     }
 
-    pub fn get_client(&self) -> MutexGuard<'_, DiscordIpcClient> {
+    pub async fn get_client(&self) -> MutexGuard<'_, DiscordIpcClient> {
         self.client
             .as_ref()
             .expect("Discord client not initialized")
             .lock()
-            .expect("Failed to lock discord client")
+            .await
+    }
+
+    pub async fn clear_activity(&self) {
+        let mut client = self.get_client().await;
+        client
+            .clear_activity()
+            .unwrap_or_else(|_| println!("Failed to clear activity"));
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn change_activity(
+    pub async fn change_activity(
         &self,
         state: Option<String>,
         details: Option<String>,
@@ -86,7 +91,7 @@ impl Discord {
         small_text: Option<String>,
         git_remote_url: Option<String>,
     ) {
-        let mut client = self.get_client();
+        let mut client = self.get_client().await;
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
 
         let activity = Activity::new()

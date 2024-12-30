@@ -13,28 +13,37 @@ macro_rules! replace_with_capitalization {
 }
 
 pub struct Placeholders<'a> {
-    filename: String,
+    filename: Option<String>,
     workspace: &'a str,
-    language: String,
+    language: Option<String>,
     base_icons_url: &'a str,
 }
 
 impl<'a> Placeholders<'a> {
-    pub fn new(doc: &'a Document, config: &'a Configuration, workspace: &'a str) -> Self {
+    pub fn new(doc: Option<&'a Document>, config: &'a Configuration, workspace: &'a str) -> Self {
+        let (filename, language) = if let Some(doc) = doc {
+            (Some(doc.get_filename()), Some(get_language(doc)))
+        } else {
+            (None, None)
+        };
+
         Self {
-            filename: doc.get_filename(),
+            filename,
             workspace,
-            language: get_language(doc),
+            language,
             base_icons_url: &config.base_icons_url,
         }
     }
 
     pub fn replace(&self, text: &str) -> String {
+        let filename = self.filename.as_deref().unwrap_or("filename");
+        let language = self.language.as_deref().unwrap_or("language");
+
         replace_with_capitalization!(
             text,
-            "filename" => self.filename.as_str(),
+            "filename" => filename,
             "workspace" => self.workspace,
-            "language" => self.language.as_str(),
+            "language" => language,
             "base_icons_url" => self.base_icons_url
         )
     }
