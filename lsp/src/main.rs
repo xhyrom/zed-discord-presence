@@ -198,6 +198,7 @@ impl Backend {
         return self.discord.lock().await;
     }
 
+    #[allow(clippy::type_complexity)]
     fn process_fields(
         placeholders: &Placeholders,
         state: &Option<String>,
@@ -231,6 +232,7 @@ impl Backend {
         )
     }
 
+    #[allow(clippy::type_complexity)]
     async fn get_config_values(
         &self,
         doc: Option<&Document>,

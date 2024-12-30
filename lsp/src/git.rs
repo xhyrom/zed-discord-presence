@@ -31,7 +31,7 @@ fn get_main_remote_url(repository: Repository) -> Option<String> {
         return remote.url().map(|url| transform_url(url.to_string()));
     }
 
-    return match repository.remotes() {
+    match repository.remotes() {
         Ok(remotes) => remotes.get(0).and_then(|name| {
             repository
                 .find_remote(name)
@@ -39,7 +39,7 @@ fn get_main_remote_url(repository: Repository) -> Option<String> {
                 .and_then(|remote| remote.url().map(|url| transform_url(url.to_string())))
         }),
         Err(_) => None,
-    };
+    }
 }
 
 fn transform_url(url: String) -> String {
