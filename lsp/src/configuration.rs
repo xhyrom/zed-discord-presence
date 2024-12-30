@@ -53,6 +53,35 @@ impl Rules {
 }
 
 #[derive(Debug)]
+pub struct Idle {
+    pub timeout: u64, // in seconds
+
+    pub state: Option<String>,
+    pub details: Option<String>,
+
+    pub large_image: Option<String>,
+    pub large_text: Option<String>,
+    pub small_image: Option<String>,
+    pub small_text: Option<String>,
+}
+
+impl Default for Idle {
+    fn default() -> Self {
+        Idle {
+            timeout: 300,
+
+            state: Some("Idling".to_string()),
+            details: Some("In Zed".to_string()),
+
+            large_image: Some(String::from("{base_icons_url}/zed.png")),
+            large_text: Some(String::from("Zed")),
+            small_image: Some(String::from("{base_icons_url}/idle.png")),
+            small_text: Some(String::from("Idle")),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Configuration {
     pub application_id: String,
     pub base_icons_url: String,
@@ -66,6 +95,8 @@ pub struct Configuration {
     pub small_text: Option<String>,
 
     pub rules: Rules,
+
+    pub idle: Idle,
 
     pub git_integration: bool,
 }
@@ -104,6 +135,7 @@ impl Configuration {
             small_image: Some(String::from("{base_icons_url}/zed.png")),
             small_text: Some(String::from("Zed")),
             rules: Rules::default(),
+            idle: Idle::default(),
             git_integration: true,
         }
     }
@@ -139,6 +171,16 @@ impl Configuration {
                                 .filter_map(|p| p.as_str().map(|s| s.to_string()))
                                 .collect()
                         });
+            }
+
+            if let Some(idle) = options.get("idle") {
+                self.idle.timeout = idle.get("timeout").and_then(|t| t.as_u64()).unwrap_or(300);
+                set_option!(self, idle, state, "state");
+                set_option!(self, idle, details, "details");
+                set_option!(self, idle, large_image, "large_image");
+                set_option!(self, idle, large_text, "large_text");
+                set_option!(self, idle, small_image, "small_image");
+                set_option!(self, idle, small_text, "small_text");
             }
 
             if let Some(git_integration) = options.get("git_integration") {

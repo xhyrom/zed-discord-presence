@@ -22,11 +22,15 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Arc;
+use std::time::Duration;
 
 use configuration::Configuration;
 use discord::Discord;
 use git::get_repository_and_remote;
+use tokio::sync::{Mutex, MutexGuard};
+use tokio::task::JoinHandle;
+use tokio::time;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -46,10 +50,11 @@ struct Document {
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    discord: Mutex<Discord>,
-    workspace_file_name: Mutex<String>,
-    git_remote_url: Mutex<Option<String>>,
-    config: Mutex<Configuration>,
+    discord: Arc<Mutex<Discord>>,
+    workspace_file_name: Arc<Mutex<String>>,
+    git_remote_url: Arc<Mutex<Option<String>>>,
+    config: Arc<Mutex<Configuration>>,
+    idle_timeout: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl Document {
@@ -82,81 +87,180 @@ impl Backend {
     fn new(client: Client) -> Self {
         Self {
             client,
-            discord: Mutex::new(Discord::new()),
-            workspace_file_name: Mutex::new(String::new()),
-            git_remote_url: Mutex::new(None),
-            config: Mutex::new(Configuration::new()),
+            discord: Arc::new(Mutex::new(Discord::new())),
+            workspace_file_name: Arc::new(Mutex::new(String::new())),
+            git_remote_url: Arc::new(Mutex::new(None)),
+            config: Arc::new(Mutex::new(Configuration::new())),
+            idle_timeout: Arc::new(Mutex::new(None)),
         }
     }
 
     async fn on_change(&self, doc: Document) {
-        let config = self.get_config();
-        let workspace = self.get_workspace_file_name();
-        let placeholders = Placeholders::new(&doc, &config, workspace.deref());
+        self.reset_idle_timeout().await;
 
-        let state = config
-            .state
-            .as_ref()
-            .map(|state| placeholders.replace(state));
-        let details = config
-            .details
-            .as_ref()
-            .map(|details| placeholders.replace(details));
+        let (state, details, large_image, large_text, small_image, small_text, git_integration) =
+            self.get_config_values(Some(&doc)).await;
 
-        let large_image = config
-            .large_image
-            .as_ref()
-            .map(|img| placeholders.replace(img));
-        let large_text = config
-            .large_text
-            .as_ref()
-            .map(|text| placeholders.replace(text));
-        let small_image = config
-            .small_image
-            .as_ref()
-            .map(|img| placeholders.replace(img));
-        let small_text = config
-            .small_text
-            .as_ref()
-            .map(|text| placeholders.replace(text));
+        self.get_discord()
+            .await
+            .change_activity(
+                state,
+                details,
+                large_image,
+                large_text,
+                small_image,
+                small_text,
+                if git_integration {
+                    self.get_git_remote_url().await
+                } else {
+                    None
+                },
+            )
+            .await;
+    }
 
-        self.get_discord().change_activity(
+    async fn reset_idle_timeout(&self) {
+        let mut idle_timeout = self.idle_timeout.lock().await;
+
+        if let Some(handle) = idle_timeout.take() {
+            handle.abort();
+        }
+
+        let discord_clone = Arc::clone(&self.discord);
+        let config_clone = Arc::clone(&self.config);
+        let git_remote_url_clone = Arc::clone(&self.git_remote_url);
+
+        let timeout_duration = {
+            let config_guard = config_clone.lock().await;
+            Duration::from_secs(config_guard.idle.timeout)
+        };
+
+        let handle = tokio::spawn(async move {
+            time::sleep(timeout_duration).await;
+
+            let config_guard = config_clone.lock().await;
+            let placeholders = Placeholders::new(None, &config_guard, "");
+
+            let (state, details, large_image, large_text, small_image, small_text) =
+                Backend::process_fields(
+                    &placeholders,
+                    &config_guard.idle.state,
+                    &config_guard.idle.details,
+                    &config_guard.idle.large_image,
+                    &config_guard.idle.large_text,
+                    &config_guard.idle.small_image,
+                    &config_guard.idle.small_text,
+                );
+
+            let discord_guard = discord_clone.lock().await;
+            discord_guard
+                .change_activity(
+                    state,
+                    details,
+                    large_image,
+                    large_text,
+                    small_image,
+                    small_text,
+                    if config_guard.git_integration {
+                        let git_remote_url_guard = git_remote_url_clone.lock().await;
+                        git_remote_url_guard.clone()
+                    } else {
+                        None
+                    },
+                )
+                .await;
+        });
+
+        *idle_timeout = Some(handle);
+    }
+
+    async fn get_workspace_file_name(&self) -> MutexGuard<'_, String> {
+        return self.workspace_file_name.lock().await;
+    }
+
+    async fn get_git_remote_url(&self) -> Option<String> {
+        let guard = self.git_remote_url.lock().await;
+
+        guard.clone()
+    }
+
+    async fn get_config(&self) -> MutexGuard<Configuration> {
+        return self.config.lock().await;
+    }
+
+    async fn get_discord(&self) -> MutexGuard<Discord> {
+        return self.discord.lock().await;
+    }
+
+    fn process_fields(
+        placeholders: &Placeholders,
+        state: &Option<String>,
+        details: &Option<String>,
+        large_image: &Option<String>,
+        large_text: &Option<String>,
+        small_image: &Option<String>,
+        small_text: &Option<String>,
+    ) -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
+        let state = state.as_ref().map(|s| placeholders.replace(s));
+        let details = details.as_ref().map(|d| placeholders.replace(d));
+        let large_image = large_image.as_ref().map(|img| placeholders.replace(img));
+        let large_text = large_text.as_ref().map(|text| placeholders.replace(text));
+        let small_image = small_image.as_ref().map(|img| placeholders.replace(img));
+        let small_text = small_text.as_ref().map(|text| placeholders.replace(text));
+
+        (
             state,
             details,
             large_image,
             large_text,
             small_image,
             small_text,
-            if config.git_integration {
-                self.get_git_remote_url()
-            } else {
-                None
-            },
-        );
+        )
     }
 
-    fn get_workspace_file_name(&self) -> MutexGuard<'_, String> {
-        return self
-            .workspace_file_name
-            .lock()
-            .expect("Failed to lock workspace file name");
-    }
+    async fn get_config_values(
+        &self,
+        doc: Option<&Document>,
+    ) -> (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        bool,
+    ) {
+        let config = self.get_config().await;
+        let workspace = self.get_workspace_file_name().await;
+        let placeholders = Placeholders::new(doc, &config, workspace.deref());
 
-    fn get_git_remote_url(&self) -> Option<String> {
-        let guard = self
-            .git_remote_url
-            .lock()
-            .expect("Failed to lock git remote url");
+        let (state, details, large_image, large_text, small_image, small_text) =
+            Self::process_fields(
+                &placeholders,
+                &config.state,
+                &config.details,
+                &config.large_image,
+                &config.large_text,
+                &config.small_image,
+                &config.small_text,
+            );
 
-        guard.clone()
-    }
-
-    fn get_config(&self) -> MutexGuard<Configuration> {
-        return self.config.lock().expect("Failed to lock config");
-    }
-
-    fn get_discord(&self) -> MutexGuard<Discord> {
-        return self.discord.lock().expect("Failed to lock discord");
+        (
+            state,
+            details,
+            large_image,
+            large_text,
+            small_image,
+            small_text,
+            config.git_integration,
+        )
     }
 }
 
@@ -166,24 +270,21 @@ impl LanguageServer for Backend {
         // Set workspace name
         let root_uri = params.root_uri.expect("Failed to get root uri");
         let workspace_path = Path::new(root_uri.path());
-        self.workspace_file_name
-            .lock()
-            .expect("Failed to lock workspace file name")
-            .push_str(
-                workspace_path
-                    .file_name()
-                    .expect("Failed to get workspace file name")
-                    .to_str()
-                    .expect("Failed to convert workspace file name &OsStr to &str"),
-            );
+        self.workspace_file_name.lock().await.push_str(
+            workspace_path
+                .file_name()
+                .expect("Failed to get workspace file name")
+                .to_str()
+                .expect("Failed to convert workspace file name &OsStr to &str"),
+        );
 
-        let mut git_remote_url = self.git_remote_url.lock().unwrap();
+        let mut git_remote_url = self.git_remote_url.lock().await;
         *git_remote_url = get_repository_and_remote(workspace_path.to_str().unwrap());
 
-        let mut config = self.config.lock().unwrap();
+        let mut config = self.config.lock().await;
         config.set(params.initialization_options);
 
-        let mut discord = self.get_discord();
+        let mut discord = self.get_discord().await;
         discord.create_client(config.application_id.to_string());
 
         if config.rules.suitable(
@@ -192,7 +293,7 @@ impl LanguageServer for Backend {
                 .expect("Failed to transform workspace path to str"),
         ) {
             // Connect discord client
-            discord.connect();
+            discord.connect().await;
         } else {
             // Exit LSP
             exit(0);
@@ -222,7 +323,7 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        self.get_discord().kill();
+        self.get_discord().await.kill().await;
 
         Ok(())
     }

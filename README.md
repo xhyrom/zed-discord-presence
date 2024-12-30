@@ -32,7 +32,7 @@ You can configure state, details and git integration by changing Discord Presenc
     "discord_presence": {
       "initialization_options": {
         // application id for the rich presence (required, keep it if you don't know what you're doing)
-        "application_id": "1263505205522337886"
+        "application_id": "1263505205522337886",
         // Base url for all language icons
         "base_icons_url": "https://raw.githubusercontent.com/xhyrom/zed-discord-presence/main/assets/icons/",
 
@@ -45,12 +45,21 @@ You can configure state, details and git integration by changing Discord Presenc
         "small_image": "{base_icons_url}/zed.png",
         "small_text": "Zed",
 
+        // Idle state
+        "idle": {
+          "timeout": 300, // in seconds, 300 seconds = 5 minutes
+          "state": "Idling",
+          "details": "In Zed",
+          "large_image": "{base_icons_url}/zed.png",
+          "large_text": "Zed",
+          "small_image": "{base_icons_url}/idle.png",
+          "small_text": "Idle",
+        }
+
         // Rules - disable presence in some workspaces
         "rules": {
           "mode": "blacklist", // or whitelist
-          "paths": [
-            "absolute path"
-          ]
+          "paths": ["absolute path"]
         },
 
         "git_integration": true
