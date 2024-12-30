@@ -141,6 +141,13 @@ impl Backend {
             let config_guard = config_clone.lock().await;
             let placeholders = Placeholders::new(None, &config_guard, "");
 
+            let discord_guard = discord_clone.lock().await;
+
+            if config_guard.idle.action == configuration::IdleAction::ClearActivity {
+                discord_guard.clear_activity().await;
+                return;
+            }
+
             let (state, details, large_image, large_text, small_image, small_text) =
                 Backend::process_fields(
                     &placeholders,
@@ -152,7 +159,6 @@ impl Backend {
                     &config_guard.idle.small_text,
                 );
 
-            let discord_guard = discord_clone.lock().await;
             discord_guard
                 .change_activity(
                     state,

@@ -52,9 +52,16 @@ impl Rules {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum IdleAction {
+    ClearActivity,  // Clear the activity
+    ChangeActivity, // Change the activity
+}
+
 #[derive(Debug)]
 pub struct Idle {
-    pub timeout: u64, // in seconds
+    pub timeout: u64,       // in seconds
+    pub action: IdleAction, // what to do when idle
 
     pub state: Option<String>,
     pub details: Option<String>,
@@ -69,6 +76,7 @@ impl Default for Idle {
     fn default() -> Self {
         Idle {
             timeout: 300,
+            action: IdleAction::ChangeActivity,
 
             state: Some("Idling".to_string()),
             details: Some("In Zed".to_string()),
@@ -175,6 +183,15 @@ impl Configuration {
 
             if let Some(idle) = options.get("idle") {
                 self.idle.timeout = idle.get("timeout").and_then(|t| t.as_u64()).unwrap_or(300);
+                self.idle.action = idle.get("action").and_then(|a| a.as_str()).map_or(
+                    IdleAction::ChangeActivity,
+                    |action| match action {
+                        "clear_activity" => IdleAction::ClearActivity,
+                        "change_activity" => IdleAction::ChangeActivity,
+                        _ => IdleAction::ChangeActivity,
+                    },
+                );
+
                 set_option!(self, idle, state, "state");
                 set_option!(self, idle, details, "details");
                 set_option!(self, idle, large_image, "large_image");

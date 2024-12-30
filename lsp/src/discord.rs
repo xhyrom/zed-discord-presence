@@ -73,6 +73,13 @@ impl Discord {
             .await
     }
 
+    pub async fn clear_activity(&self) {
+        let mut client = self.get_client().await;
+        client
+            .clear_activity()
+            .unwrap_or_else(|_| println!("Failed to clear activity"));
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn change_activity(
         &self,
