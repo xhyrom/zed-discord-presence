@@ -1,6 +1,6 @@
 id = "discord-presence"
 name = "Discord Presence"
-version = "0.2.1"
+version = "0.2.2"
 schema_version = 1
 authors = ["Jozef Steinhübl <contact@xhyrom.dev>"]
 description = "Presence for your beautiful discord account :)"
