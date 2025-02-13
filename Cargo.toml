@@ -10,7 +10,6 @@ path = "src/discord_presence.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-symlink = "0.1.0"
 zed_extension_api = "0.0.6"
 
 [workspace]
