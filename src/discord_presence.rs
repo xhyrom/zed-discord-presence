@@ -43,14 +43,14 @@ fn create_symlink(_src: &str, _dst: &str) -> std::io::Result<()> {
 impl DiscordPresenceExtension {
     fn fallback(&mut self) -> zed::Result<String> {
         if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
+            if fs::metadata(path).is_ok_and(|stat| stat.is_file()) {
                 return Ok(path.clone());
             }
         }
 
         let binary_path: String = "discord-presence-lsp".to_string();
 
-        if !fs::metadata(&binary_path).map_or(false, |stat| stat.is_file()) {
+        if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             return Err("failed to find fallback language server binary".to_string());
         }
 
@@ -68,7 +68,7 @@ impl DiscordPresenceExtension {
         }
 
         if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
+            if fs::metadata(path).is_ok_and(|stat| stat.is_file()) {
                 return Ok(path.clone());
             }
         }
@@ -118,7 +118,7 @@ impl DiscordPresenceExtension {
             .expect("failed to split asset name");
         let binary_path: String = format!("{version_dir}/{asset_name}/discord-presence-lsp");
 
-        if !fs::metadata(&binary_path).map_or(false, |stat| stat.is_file()) {
+        if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             zed::set_language_server_installation_status(
                 language_server_id,
                 &zed::LanguageServerInstallationStatus::Downloading,
@@ -149,7 +149,7 @@ impl DiscordPresenceExtension {
             let _ = fs::remove_file("discord-presence-lsp");
         }
 
-        if !fs::metadata("discord-presence-lsp").map_or(false, |stat| stat.is_file()) {
+        if !fs::metadata("discord-presence-lsp").is_ok_and(|stat| stat.is_file()) {
             create_symlink(&binary_path, "discord-presence-lsp")
                 .map_err(|e| format!("failed to create symlink: {e}"))?;
         }
