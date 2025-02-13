@@ -24,8 +24,40 @@ struct DiscordPresenceExtension {
     cached_binary_path: Option<String>,
 }
 
+#[cfg(unix)]
+fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(src, dst)
+}
+
+#[cfg(windows)]
+fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(src, dst)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_symlink(_src: &str, _dst: &str) -> std::io::Result<()> {
+    fs::soft_link(_src, _dst)
+}
+
 #[allow(clippy::match_wildcard_for_single_variants)]
 impl DiscordPresenceExtension {
+    fn fallback(&mut self) -> zed::Result<String> {
+        if let Some(path) = &self.cached_binary_path {
+            if fs::metadata(path).is_ok_and(|stat| stat.is_file()) {
+                return Ok(path.clone());
+            }
+        }
+
+        let binary_path: String = "discord-presence-lsp".to_string();
+
+        if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
+            return Err("failed to find fallback language server binary".to_string());
+        }
+
+        self.cached_binary_path = Some(binary_path.clone());
+        Ok(binary_path)
+    }
+
     fn language_server_binary_path(
         &mut self,
         language_server_id: &zed::LanguageServerId,
@@ -36,7 +68,7 @@ impl DiscordPresenceExtension {
         }
 
         if let Some(path) = &self.cached_binary_path {
-            if fs::metadata(path).map_or(false, |stat| stat.is_file()) {
+            if fs::metadata(path).is_ok_and(|stat| stat.is_file()) {
                 return Ok(path.clone());
             }
         }
@@ -86,7 +118,7 @@ impl DiscordPresenceExtension {
             .expect("failed to split asset name");
         let binary_path: String = format!("{version_dir}/{asset_name}/discord-presence-lsp");
 
-        if !fs::metadata(&binary_path).map_or(false, |stat| stat.is_file()) {
+        if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             zed::set_language_server_installation_status(
                 language_server_id,
                 &zed::LanguageServerInstallationStatus::Downloading,
@@ -106,12 +138,20 @@ impl DiscordPresenceExtension {
 
             let entries =
                 fs::read_dir(".").map_err(|e| format!("failed to list working directory {e}"))?;
+
             for entry in entries {
                 let entry = entry.map_err(|e| format!("failed to load directory entry {e}"))?;
                 if entry.file_name().to_str() != Some(&version_dir) {
                     fs::remove_dir_all(entry.path()).ok();
                 }
             }
+
+            let _ = fs::remove_file("discord-presence-lsp");
+        }
+
+        if !fs::metadata("discord-presence-lsp").is_ok_and(|stat| stat.is_file()) {
+            create_symlink(&binary_path, "discord-presence-lsp")
+                .map_err(|e| format!("failed to create symlink: {e}"))?;
         }
 
         self.cached_binary_path = Some(binary_path.clone());
@@ -131,8 +171,15 @@ impl zed::Extension for DiscordPresenceExtension {
         language_server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<zed_extension_api::Command> {
+        let mut path = self.language_server_binary_path(language_server_id, worktree);
+        if let Err(orig_e) = path {
+            path = self
+                .fallback()
+                .map_err(|e| format!("failed to get language server binary path: {e}, {orig_e}"));
+        }
+
         Ok(zed::Command {
-            command: self.language_server_binary_path(language_server_id, worktree)?,
+            command: path.map_err(|e| format!("failed to get language server binary path: {e}"))?,
             args: vec![],
             env: vec![],
         })
