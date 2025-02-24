@@ -31,7 +31,10 @@ fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_file(src, dst)
+    std::os::windows::fs::symlink_file(src, dst).or_else(|_| {
+        fs::copy(src, dst)?;
+        Ok(())
+    })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -116,7 +119,11 @@ impl DiscordPresenceExtension {
             .split('.')
             .next()
             .expect("failed to split asset name");
-        let binary_path: String = format!("{version_dir}/{asset_name}/discord-presence-lsp");
+
+        let binary_path: String = match platform {
+            zed::Os::Windows => format!("{version_dir}/{asset_name}/discord-presence-lsp.exe"),
+            _ => format!("{version_dir}/{asset_name}/discord-presence-lsp"),
+        };
 
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             zed::set_language_server_installation_status(
