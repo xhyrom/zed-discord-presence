@@ -17,7 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use std::fs;
+use std::{fmt::format, fs};
 use zed_extension_api::{self as zed};
 
 struct DiscordPresenceExtension {
@@ -116,7 +116,11 @@ impl DiscordPresenceExtension {
             .split('.')
             .next()
             .expect("failed to split asset name");
-        let binary_path: String = format!("{version_dir}/{asset_name}/discord-presence-lsp");
+
+        let binary_path: String = match platform {
+            zed::Os::Windows => format!("{version_dir}/{asset_name}/discord-presence-lsp.exe"),
+            _ => format!("{version_dir}/{asset_name}/discord-presence-lsp"),
+        };
 
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             zed::set_language_server_installation_status(
