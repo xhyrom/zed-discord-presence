@@ -31,13 +31,10 @@ fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
 
 #[cfg(windows)]
 fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
-    match std::os::windows::fs::symlink_file(src, dst) {
-        Ok(_) => Ok(()),
-        Err(_) => {
-            fs::copy(src, dst)?;
-            Ok(())
-        }
-    }
+    std::os::windows::fs::symlink_file(src, dst).or_else(|_| {
+        fs::copy(src, dst)?;
+        Ok(())
+    })
 }
 
 #[cfg(not(any(unix, windows)))]
