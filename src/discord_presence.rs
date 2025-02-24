@@ -157,8 +157,9 @@ impl DiscordPresenceExtension {
         }
 
         if !fs::metadata("discord-presence-lsp").is_ok_and(|stat| stat.is_file()) {
-            create_symlink(&binary_path, "discord-presence-lsp")
-                .map_err(|e| format!("failed to create symlink: {e}"))?;
+            if let Err(e) = create_symlink(&binary_path, "discord-presence-lsp") {
+                eprintln!("failed to create symlink: {e}");
+            }
         }
 
         self.cached_binary_path = Some(binary_path.clone());
