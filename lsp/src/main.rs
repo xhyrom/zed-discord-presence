@@ -198,6 +198,20 @@ impl Backend {
         return self.discord.lock().await;
     }
 
+    fn resolve_workspace_path(params: &InitializeParams) -> PathBuf {
+        if let Some(folders) = &params.workspace_folders {
+            if let Some(first_folder) = folders.first() {
+                return Path::new(first_folder.uri.path()).to_owned();
+            }
+        }
+
+        let root_uri = params.root_uri.as_ref().expect(
+            "Failed to get workspace path - neither workspace_folders nor root_uri is present",
+        );
+
+        Path::new(root_uri.path()).to_owned()
+    }
+
     #[allow(clippy::type_complexity)]
     fn process_fields(
         placeholders: &Placeholders,
@@ -276,8 +290,8 @@ impl Backend {
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         // Set workspace name
-        let root_uri = params.root_uri.expect("Failed to get root uri");
-        let workspace_path = Path::new(root_uri.path());
+        let workspace_path = Self::resolve_workspace_path(&params);
+
         self.workspace_file_name.lock().await.push_str(
             workspace_path
                 .file_name()
