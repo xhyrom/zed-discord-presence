@@ -314,8 +314,11 @@ impl LanguageServer for Backend {
                 .to_str()
                 .expect("Failed to transform workspace path to str"),
         ) {
-            // Connect discord client
-            discord.connect().await;
+            // Connect to Discord client
+            discord
+                .connect()
+                .await
+                .expect("Failed to connect to Discord; it may not be running.");
         } else {
             // Exit LSP
             exit(0);
