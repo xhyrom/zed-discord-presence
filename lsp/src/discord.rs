@@ -53,10 +53,11 @@ impl Discord {
         self.client = Some(Mutex::new(discord_client));
     }
 
-    pub async fn connect(&self) {
+    pub async fn connect(&self) -> Result<(), String> {
         let mut client = self.get_client().await;
-        let result = client.connect();
-        result.unwrap();
+        client
+            .connect()
+            .map_err(|e| format!("Failed to connect to Discord IPC: {}", e))
     }
 
     pub async fn kill(&self) {
