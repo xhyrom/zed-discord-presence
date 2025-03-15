@@ -31,6 +31,16 @@ jobs:
             runner: ubuntu-latest
             archive: tar.gz
             bootstrap: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+            binary: cargo
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+            bootstrap: |
+              sudo apt-get update
+              sudo apt-get -y install podman
+              cargo install cross
+              cargo clean
+            binary: cross
 
           - target: x86_64-apple-darwin
             runner: macos-latest
@@ -39,14 +49,17 @@ jobs:
               arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
               arch -x86_64 /usr/local/bin/brew install openssl@3
               echo "OPENSSL_DIR=$(/usr/local/bin/brew --prefix openssl@3)" >> $GITHUB_ENV
+            binary: cargo
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive: tar.gz
             bootstrap: echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+            binary: cargo
 
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             archive: zip
+            binary: cargo
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -61,7 +74,7 @@ jobs:
         run: ${{ matrix.bootstrap }}
 
       - name: build binary
-        run: cargo build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
+        run: ${{ matrix.binary }} build -p discord-presence-lsp --verbose --locked --release --target ${{ matrix.target }}
 
       - name: prepare for upload
         shell: bash
