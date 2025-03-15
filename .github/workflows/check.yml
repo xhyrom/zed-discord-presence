@@ -32,7 +32,11 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-latest
             archive: tar.gz
-            bootstrap: cargo install cross --git https://github.com/cross-rs/cross
+            bootstrap: |
+              sudo apt-get update
+              sudo apt-get -y install podman
+              cargo install cross
+              cargo clean
             binary: cross
 
           - target: x86_64-apple-darwin
