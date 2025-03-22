@@ -373,7 +373,7 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn did_focus(&self, params: DidFocusParams) {
+    async fn did_save(&self, params: DidFocusParams) {
         self.on_change(Document::new(params.text_document.uri))
             .await;
     }
