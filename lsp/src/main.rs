@@ -333,6 +333,16 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
+                workspace: Some(WorkspaceServerCapabilities {
+                    file_operations: None,
+                    workspace_folders: None,
+                }),
+                window: Some(WindowOptions {
+                    work_done_progress: None,
+                    show_message: None,
+                    show_document: None,
+                    workspace_folders: None,
+                }),
                 ..Default::default()
             },
         })
@@ -342,7 +352,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(
                 MessageType::INFO,
-                "Discord Presence LSP server intiailized!",
+                "Discord Presence LSP server initialized!",
             )
             .await;
     }
@@ -359,6 +369,11 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        self.on_change(Document::new(params.text_document.uri))
+            .await;
+    }
+
+    async fn did_focus(&self, params: DidFocusParams) {
         self.on_change(Document::new(params.text_document.uri))
             .await;
     }
