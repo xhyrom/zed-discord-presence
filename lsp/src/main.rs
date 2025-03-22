@@ -337,12 +337,6 @@ impl LanguageServer for Backend {
                     file_operations: None,
                     workspace_folders: None,
                 }),
-                window: Some(WindowOptions {
-                    work_done_progress: None,
-                    show_message: None,
-                    show_document: None,
-                    workspace_folders: None,
-                }),
                 ..Default::default()
             },
         })
