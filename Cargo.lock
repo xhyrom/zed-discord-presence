@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "discord-presence-lsp"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "discord-rich-presence",
  "git2",
