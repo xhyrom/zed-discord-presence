@@ -20,10 +20,7 @@
 use git2::Repository;
 
 fn get_repository(path: &str) -> Option<Repository> {
-    match Repository::open(path) {
-        Ok(repo) => Some(repo),
-        Err(_) => None,
-    }
+    Repository::open(path).ok()
 }
 
 fn get_main_remote_url(repository: Repository) -> Option<String> {
