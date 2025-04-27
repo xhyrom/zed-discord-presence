@@ -5,8 +5,11 @@ macro_rules! replace_with_capitalization {
         let mut result = $text.to_string();
         $(
             let capitalized = capitalize_first_letter($value);
+            let lowercase = $value.to_lowercase();
+
             result = result.replace(concat!("{", $placeholder, "}"), $value)
-                           .replace(concat!("{", $placeholder, ":u}"), &capitalized);
+                           .replace(concat!("{", $placeholder, ":u}"), &capitalized)
+                           .replace(concat!("{", $placeholder, ":lo}"), &lowercase);
         )*
         result
     }};

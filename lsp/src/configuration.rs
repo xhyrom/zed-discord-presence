@@ -138,7 +138,7 @@ impl Configuration {
             ),
             state: Some(String::from("Working on {filename}")),
             details: Some(String::from("In {workspace}")),
-            large_image: Some(String::from("{base_icons_url}/{language}.png")),
+            large_image: Some(String::from("{base_icons_url}/{language:lo}.png")),
             large_text: Some(String::from("{language:u}")),
             small_image: Some(String::from("{base_icons_url}/zed.png")),
             small_text: Some(String::from("Zed")),

@@ -61,9 +61,10 @@ The `details` option allows you to set the details message displayed in Discord.
 ### Large Image
 
 The `large_image` option specifies the URL for the large image displayed in Discord. The placeholders `{base_icons_url}` and `{language}` will be replaced accordingly.
+The `:lo` modifier is used to convert the language name to lowercase.
 
 ```jsonc
-"large_image": "{base_icons_url}/{language}.png"
+"large_image": "{base_icons_url}/{language:lo}.png"
 ```
 
 ### Large Text
@@ -152,7 +153,7 @@ will display a button to open the Git repository.
         "state": "Working on {filename}",
         "details": "In {workspace}",
         // URL for the large image
-        "large_image": "{base_icons_url}/{language}.png",
+        "large_image": "{base_icons_url}/{language:lo}.png", // :lo lowercase the language name
         "large_text": "{language:u}", // :u capitalizes the first letter
         // URL for the small image
         "small_image": "{base_icons_url}/zed.png",
