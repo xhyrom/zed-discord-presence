@@ -110,9 +110,9 @@ pub struct Configuration {
 }
 
 macro_rules! set_option {
-    ($self:ident, $options:ident, $field:ident, $key:expr) => {
+    ($self:ident, $options:ident, $($field:ident).+, $key:expr) => {
         if let Some(value) = $options.get($key) {
-            $self.$field = if value.is_null() {
+            $self.$($field).+ = if value.is_null() {
                 None
             } else {
                 Some(value.as_str().unwrap().to_string())
@@ -192,12 +192,12 @@ impl Configuration {
                     },
                 );
 
-                set_option!(self, idle, state, "state");
-                set_option!(self, idle, details, "details");
-                set_option!(self, idle, large_image, "large_image");
-                set_option!(self, idle, large_text, "large_text");
-                set_option!(self, idle, small_image, "small_image");
-                set_option!(self, idle, small_text, "small_text");
+                set_option!(self, idle, idle.state, "state");
+                set_option!(self, idle, idle.details, "details");
+                set_option!(self, idle, idle.large_image, "large_image");
+                set_option!(self, idle, idle.large_text, "large_text");
+                set_option!(self, idle, idle.small_image, "small_image");
+                set_option!(self, idle, idle.small_text, "small_text");
             }
 
             if let Some(git_integration) = options.get("git_integration") {
