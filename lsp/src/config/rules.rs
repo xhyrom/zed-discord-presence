@@ -34,19 +34,10 @@ impl Default for RulesMode {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Rules {
     pub mode: RulesMode,
     pub paths: Vec<String>,
-}
-
-impl Default for Rules {
-    fn default() -> Self {
-        Self {
-            mode: RulesMode::default(),
-            paths: Vec::new(),
-        }
-    }
 }
 
 impl Rules {
