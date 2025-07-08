@@ -17,24 +17,31 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use serde_json::Value;
+mod presence_service;
+mod workspace_service;
 
-pub trait UpdateFromJson {
-    fn update_from_json(&mut self, json: &Value) -> Result<()>;
+pub use presence_service::PresenceService;
+pub use workspace_service::WorkspaceService;
+
+use crate::{config::Configuration, discord::Discord};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[derive(Debug)]
+pub struct AppState {
+    pub discord: Arc<Mutex<Discord>>,
+    pub config: Arc<Mutex<Configuration>>,
+    pub workspace: Arc<Mutex<WorkspaceService>>,
+    pub git_remote_url: Arc<Mutex<Option<String>>>,
 }
 
-macro_rules! update_optional_string_field {
-    ($target:expr, $json:expr, $field:ident, $key:expr) => {
-        if let Some(value) = $json.get($key) {
-            $target.$field = if value.is_null() {
-                None
-            } else {
-                value.as_str().map(String::from)
-            };
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            discord: Arc::new(Mutex::new(Discord::new())),
+            config: Arc::new(Mutex::new(Configuration::default())),
+            workspace: Arc::new(Mutex::new(WorkspaceService::new())),
+            git_remote_url: Arc::new(Mutex::new(None)),
         }
-    };
+    }
 }
-
-pub(crate) use update_optional_string_field;
-
-use crate::error::Result;

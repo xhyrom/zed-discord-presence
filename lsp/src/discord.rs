@@ -25,7 +25,7 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 
-use crate::util;
+use crate::{error::Result, util};
 
 #[derive(Debug)]
 pub struct Discord {
@@ -46,39 +46,51 @@ impl Discord {
         }
     }
 
-    pub fn create_client(&mut self, application_id: String) {
-        let discord_client = DiscordIpcClient::new(application_id.as_str())
-            .expect("Failed to initialize Discord Ipc Client");
+    pub fn create_client(&mut self, application_id: String) -> Result<()> {
+        let discord_client = DiscordIpcClient::new(application_id.as_str()).map_err(|e| {
+            crate::error::PresenceError::Discord(format!(
+                "Failed to initialize Discord IPC Client: {}",
+                e
+            ))
+        })?;
 
         self.client = Some(Mutex::new(discord_client));
+        Ok(())
     }
 
-    pub async fn connect(&self) -> Result<(), String> {
-        let mut client = self.get_client().await;
-        client
-            .connect()
-            .map_err(|e| format!("Failed to connect to Discord IPC: {}", e))
+    pub async fn connect(&self) -> Result<()> {
+        let mut client = self.get_client().await?;
+        client.connect().map_err(|e| {
+            crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {}", e))
+        })?;
+        Ok(())
     }
 
-    pub async fn kill(&self) {
-        let mut client = self.get_client().await;
-        let result = client.close();
-        result.unwrap();
+    pub async fn kill(&self) -> Result<()> {
+        let mut client = self.get_client().await?;
+        client.close().map_err(|e| {
+            crate::error::PresenceError::Discord(format!(
+                "Failed to close Discord connection: {}",
+                e
+            ))
+        })?;
+        Ok(())
     }
 
-    pub async fn get_client(&self) -> MutexGuard<'_, DiscordIpcClient> {
-        self.client
-            .as_ref()
-            .expect("Discord client not initialized")
-            .lock()
-            .await
+    pub async fn get_client(&self) -> Result<MutexGuard<'_, DiscordIpcClient>> {
+        let client = self.client.as_ref().ok_or_else(|| {
+            crate::error::PresenceError::Discord("Discord client not initialized".to_string())
+        })?;
+
+        Ok(client.lock().await)
     }
 
-    pub async fn clear_activity(&self) {
-        let mut client = self.get_client().await;
-        client
-            .clear_activity()
-            .unwrap_or_else(|_| println!("Failed to clear activity"));
+    pub async fn clear_activity(&self) -> Result<()> {
+        let mut client = self.get_client().await?;
+        client.clear_activity().map_err(|e| {
+            crate::error::PresenceError::Discord(format!("Failed to clear activity: {}", e))
+        })?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -91,8 +103,8 @@ impl Discord {
         small_image: Option<String>,
         small_text: Option<String>,
         git_remote_url: Option<String>,
-    ) {
-        let mut client = self.get_client().await;
+    ) -> Result<()> {
+        let mut client = self.get_client().await?;
         let timestamp: i64 = self.start_timestamp.as_millis() as i64;
 
         let activity = Activity::new()
@@ -115,8 +127,10 @@ impl Discord {
 
         let activity = activity.assets(assets);
 
-        client
-            .set_activity(activity)
-            .unwrap_or_else(|_| println!("Failed to set activity with activity"));
+        client.set_activity(activity).map_err(|e| {
+            crate::error::PresenceError::Discord(format!("Failed to set activity: {}", e))
+        })?;
+
+        Ok(())
     }
 }
