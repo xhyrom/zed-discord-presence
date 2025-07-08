@@ -31,11 +31,11 @@ pub enum PresenceError {
 impl fmt::Display for PresenceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PresenceError::Discord(msg) => write!(f, "Discord error: {}", msg),
-            PresenceError::Config(msg) => write!(f, "Config error: {}", msg),
-            PresenceError::Io(err) => write!(f, "IO error: {}", err),
-            PresenceError::JsonParse(err) => write!(f, "JSON parse error: {}", err),
-            PresenceError::UrlDecode(err) => write!(f, "URL decode error: {}", err),
+            PresenceError::Discord(msg) => write!(f, "Discord error: {msg}"),
+            PresenceError::Config(msg) => write!(f, "Config error: {msg}"),
+            PresenceError::Io(err) => write!(f, "IO error: {err}"),
+            PresenceError::JsonParse(err) => write!(f, "JSON parse error: {err}"),
+            PresenceError::UrlDecode(err) => write!(f, "URL decode error: {err}"),
         }
     }
 }

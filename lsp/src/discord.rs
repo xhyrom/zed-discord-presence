@@ -48,17 +48,16 @@ impl Discord {
     }
 
     #[instrument(skip(self))]
-    pub fn create_client(&mut self, application_id: String) -> Result<()> {
+    pub fn create_client(&mut self, application_id: &str) -> Result<()> {
         info!(
             "Creating Discord IPC client with app ID: {}",
             application_id
         );
 
-        let discord_client = DiscordIpcClient::new(application_id.as_str()).map_err(|e| {
+        let discord_client = DiscordIpcClient::new(application_id).map_err(|e| {
             error!("Failed to initialize Discord IPC Client: {}", e);
             crate::error::PresenceError::Discord(format!(
-                "Failed to initialize Discord IPC Client: {}",
-                e
+                "Failed to initialize Discord IPC Client: {e}"
             ))
         })?;
 
@@ -74,7 +73,7 @@ impl Discord {
         let mut client = self.get_client().await?;
         client.connect().map_err(|e| {
             error!("Failed to connect to Discord IPC: {}", e);
-            crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {}", e))
+            crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {e}"))
         })?;
 
         info!("Successfully connected to Discord IPC");
@@ -86,10 +85,7 @@ impl Discord {
 
         let mut client = self.get_client().await?;
         client.close().map_err(|e| {
-            crate::error::PresenceError::Discord(format!(
-                "Failed to close Discord connection: {}",
-                e
-            ))
+            crate::error::PresenceError::Discord(format!("Failed to close Discord connection: {e}"))
         })?;
 
         Ok(())
@@ -110,7 +106,7 @@ impl Discord {
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {
             error!("Failed to clear activity: {}", e);
-            crate::error::PresenceError::Discord(format!("Failed to clear activity: {}", e))
+            crate::error::PresenceError::Discord(format!("Failed to clear activity: {e}"))
         })?;
 
         info!("Discord activity cleared");
@@ -132,7 +128,10 @@ impl Discord {
         git_remote_url: Option<String>,
     ) -> Result<()> {
         let mut client = self.get_client().await?;
-        let timestamp: i64 = self.start_timestamp.as_millis() as i64;
+        let timestamp: i64 = i64::try_from(self.start_timestamp.as_millis()).map_err(|e| {
+            error!("Failed to convert timestamp: {}", e);
+            crate::error::PresenceError::Discord(format!("Failed to convert timestamp: {e}"))
+        })?;
 
         let activity = Activity::new()
             .timestamps(Timestamps::new().start(timestamp))
@@ -156,7 +155,7 @@ impl Discord {
 
         client.set_activity(activity).map_err(|e| {
             error!("Failed to set activity: {}", e);
-            crate::error::PresenceError::Discord(format!("Failed to set activity: {}", e))
+            crate::error::PresenceError::Discord(format!("Failed to set activity: {e}"))
         })?;
 
         debug!("Discord activity updated successfully");

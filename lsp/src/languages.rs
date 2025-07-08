@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_unicode_perl() {
-        let document = Document::new(Url::parse("file:///home/user/file.php").unwrap());
+        let document = Document::new(&Url::parse("file:///home/user/file.php").unwrap());
         let lang = get_language(&document);
         assert_eq!(lang, "php");
     }

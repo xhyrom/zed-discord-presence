@@ -202,21 +202,21 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         debug!("Document opened: {}", params.text_document.uri);
-        self.on_change(Document::new(params.text_document.uri))
+        self.on_change(Document::new(&params.text_document.uri))
             .await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
-        self.on_change(Document::new(params.text_document.uri))
+        self.on_change(Document::new(&params.text_document.uri))
             .await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         debug!("Document saved: {}", params.text_document.uri);
-        self.on_change(Document::new(params.text_document.uri))
+        self.on_change(Document::new(&params.text_document.uri))
             .await;
     }
 }

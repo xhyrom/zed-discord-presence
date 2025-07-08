@@ -20,7 +20,7 @@
 use std::env;
 use tracing::Level;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{EnvFilter, Layer, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 pub fn init_logger() {
     let log_level = env::var("DISCORD_PRESENCE_LOG_LEVEL")
@@ -33,13 +33,13 @@ pub fn init_logger() {
         "info" => Level::INFO,
         "warn" => Level::WARN,
         "error" => Level::ERROR,
-        _ => Level::INFO,
+        _ => unreachable!(),
     };
 
     let filter = EnvFilter::from_default_env()
-        .add_directive(format!("discord_presence_lsp={}", level).parse().unwrap())
-        .add_directive(format!("tower_lsp={}", level).parse().unwrap()) // Reduce tower-lsp noise
-        .add_directive(format!("discord_rich_presence={}", level).parse().unwrap()); // Reduce discord lib noise
+        .add_directive(format!("discord_presence_lsp={level}").parse().unwrap())
+        .add_directive(format!("tower_lsp={level}").parse().unwrap()) // Reduce tower-lsp noise
+        .add_directive(format!("discord_rich_presence={level}").parse().unwrap()); // Reduce discord lib noise
 
     let log_to_file = env::var("DISCORD_PRESENCE_LOG_TO_FILE")
         .map(|v| v.to_lowercase() == "true")
@@ -61,7 +61,7 @@ pub fn init_logger() {
         });
 
         if let Err(e) = std::fs::create_dir_all(&log_dir) {
-            eprintln!("Failed to create log directory {}: {}", log_dir, e);
+            eprintln!("Failed to create log directory {log_dir}: {e}");
             return;
         }
 

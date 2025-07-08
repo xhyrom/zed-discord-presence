@@ -3,6 +3,9 @@ name = "discord-presence-lsp"
 version = "0.8.1"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 discord-rich-presence = "0.2.4"
 tokio = { version = "1.37.0", features = ["rt-multi-thread", "io-std", "macros", "time"] }

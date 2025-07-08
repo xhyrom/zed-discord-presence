@@ -28,7 +28,7 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn new(url: Url) -> Self {
+    pub fn new(url: &Url) -> Self {
         let url_path = url.path();
         let path = Path::new(url_path);
 
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn test_document_creation() {
         let url = Url::parse("file:///home/user/test.rs").unwrap();
-        let doc = Document::new(url);
+        let doc = Document::new(&url);
 
         assert_eq!(doc.get_filename().unwrap(), "test.rs");
         assert_eq!(doc.get_extension(), "rs");
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn test_document_with_encoded_filename() {
         let url = Url::parse("file:///home/user/test%20file.rs").unwrap();
-        let doc = Document::new(url);
+        let doc = Document::new(&url);
 
         assert_eq!(doc.get_filename().unwrap(), "test file.rs");
     }

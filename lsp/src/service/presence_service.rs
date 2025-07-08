@@ -54,7 +54,7 @@ impl PresenceService {
 
     pub async fn initialize_discord(&self, application_id: &str) -> Result<()> {
         let mut discord = self.state.discord.lock().await;
-        discord.create_client(application_id.to_string())?;
+        discord.create_client(application_id)?;
         discord.connect().await?;
         Ok(())
     }
