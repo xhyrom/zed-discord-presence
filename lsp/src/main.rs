@@ -27,6 +27,7 @@ use service::{AppState, PresenceService};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tracing::{debug, error, info, instrument};
 
 mod activity;
 mod config;
@@ -36,6 +37,7 @@ mod error;
 mod git;
 mod idle;
 mod languages;
+mod logger;
 mod service;
 mod util;
 
@@ -51,6 +53,8 @@ impl Backend {
         let app_state = Arc::new(AppState::new());
         let presence_service = PresenceService::new(Arc::clone(&app_state));
 
+        info!("Backend initialized");
+
         Self {
             client,
             presence_service,
@@ -59,15 +63,21 @@ impl Backend {
     }
 
     async fn on_change(&self, doc: Document) {
+        debug!("Document changed");
+
         if let Err(e) = self.presence_service.update_presence(Some(doc)).await {
-            eprintln!("Failed to update presence: {}", e);
+            error!("Failed to update presence: {}", e);
+        } else {
+            debug!("Presence updated successfully");
         }
     }
 
     fn resolve_workspace_path(params: &InitializeParams) -> PathBuf {
         if let Some(folders) = &params.workspace_folders {
             if let Some(first_folder) = folders.first() {
-                return Path::new(first_folder.uri.path()).to_owned();
+                let path = Path::new(first_folder.uri.path()).to_owned();
+                debug!("Using workspace folder: {}", path.display());
+                return path;
             }
         }
 
@@ -75,40 +85,60 @@ impl Backend {
             "Failed to get workspace path - neither workspace_folders nor root_uri is present",
         );
 
-        Path::new(root_uri.path()).to_owned()
+        let path = Path::new(root_uri.path()).to_owned();
+        debug!("Using root URI: {}", path.display());
+        path
     }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        info!("Initializing Discord Presence LSP");
+
         // Set workspace
         let workspace_path = Self::resolve_workspace_path(&params);
+        info!("Workspace path: {}", workspace_path.display());
 
         {
             let mut workspace = self.app_state.workspace.lock().await;
             if let Err(e) = workspace.set_workspace(&workspace_path) {
-                eprintln!("Failed to set workspace: {}", e);
+                error!("Failed to set workspace: {}", e);
                 return Err(tower_lsp::jsonrpc::Error::internal_error());
             }
+            info!("Workspace set to: {}", workspace.name());
         }
 
         // Set git remote URL
         {
             let mut git_remote_url = self.app_state.git_remote_url.lock().await;
-            *git_remote_url = get_repository_and_remote(workspace_path.to_str().unwrap_or(""));
+            let remote_url = get_repository_and_remote(workspace_path.to_str().unwrap_or(""));
+
+            if let Some(ref url) = remote_url {
+                info!("Git remote URL found: {}", url);
+            } else {
+                debug!("No git remote URL found");
+            }
+
+            *git_remote_url = remote_url;
         }
 
         // Update config
         {
             let mut config = self.app_state.config.lock().await;
             if let Err(e) = config.update(params.initialization_options) {
-                eprintln!("Failed to update config: {}", e);
+                error!("Failed to update config: {}", e);
                 return Err(tower_lsp::jsonrpc::Error::internal_error());
             }
 
+            debug!(
+                "Configuration updated: application_id={}, git_integration={}",
+                config.application_id, config.git_integration
+            );
+
             // Check if workspace is suitable
             if !config.rules.suitable(workspace_path.to_str().unwrap_or("")) {
+                info!("Workspace not suitable according to rules, exiting");
                 exit(0);
             }
         }
@@ -121,9 +151,10 @@ impl LanguageServer for Backend {
                 .initialize_discord(&config.application_id)
                 .await
             {
-                eprintln!("Failed to initialize Discord: {}", e);
+                error!("Failed to initialize Discord: {}", e);
                 return Err(tower_lsp::jsonrpc::Error::internal_error());
             }
+            info!("Discord client initialized and connected");
         }
 
         Ok(InitializeResult {
@@ -145,6 +176,8 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
+        info!("Discord Presence LSP server fully initialized and ready");
+
         self.client
             .log_message(
                 MessageType::INFO,
@@ -153,24 +186,36 @@ impl LanguageServer for Backend {
             .await;
     }
 
+    #[instrument(skip(self))]
     async fn shutdown(&self) -> Result<()> {
+        info!("Shutting down Discord Presence LSP");
+
         if let Err(e) = self.presence_service.shutdown().await {
-            eprintln!("Failed to shutdown presence service: {}", e);
+            error!("Failed to shutdown presence service: {}", e);
+        } else {
+            info!("Presence service shutdown successfully");
         }
+
         Ok(())
     }
 
+    #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        debug!("Document opened: {}", params.text_document.uri);
         self.on_change(Document::new(params.text_document.uri))
             .await;
     }
 
+    #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        debug!("Document changed: {}", params.text_document.uri);
         self.on_change(Document::new(params.text_document.uri))
             .await;
     }
 
+    #[instrument(skip(self, params))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        debug!("Document saved: {}", params.text_document.uri);
         self.on_change(Document::new(params.text_document.uri))
             .await;
     }
@@ -178,10 +223,20 @@ impl LanguageServer for Backend {
 
 #[tokio::main]
 async fn main() {
+    logger::init_logger();
+
+    info!(
+        "Starting Discord Presence LSP server v{}",
+        env!("CARGO_PKG_VERSION")
+    );
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
     let (service, socket) = LspService::new(Backend::new);
 
+    info!("LSP service created, starting server");
     Server::new(stdin, stdout, socket).serve(service).await;
+
+    info!("Discord Presence LSP server stopped");
 }

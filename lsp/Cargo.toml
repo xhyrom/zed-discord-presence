@@ -12,3 +12,6 @@ serde_json = { version = "1.0.122", features = ["std"] }
 lazy_static = "1.5.0"
 regex = { version = "1.10.6", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
 urlencoding = "2.1.3"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+tracing-appender = "0.2.3"

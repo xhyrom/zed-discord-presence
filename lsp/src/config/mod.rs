@@ -23,6 +23,7 @@ mod update;
 
 pub use idle::{Idle, IdleAction};
 pub use rules::Rules;
+use tracing::{debug, info, instrument};
 use update::{update_optional_string_field, UpdateFromJson};
 
 use serde_json::Value;
@@ -100,9 +101,14 @@ impl UpdateFromJson for Configuration {
 }
 
 impl Configuration {
+    #[instrument(skip(self, options))]
     pub fn update(&mut self, options: Option<Value>) -> Result<()> {
         if let Some(options) = options {
+            debug!("Updating configuration from provided options");
             self.update_from_json(&options)?;
+            info!("Configuration updated successfully");
+        } else {
+            debug!("No configuration options provided, using defaults");
         }
 
         Ok(())

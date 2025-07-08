@@ -24,6 +24,7 @@ use discord_rich_presence::{
     activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
+use tracing::{debug, error, info, instrument};
 
 use crate::{error::Result, util};
 
@@ -46,8 +47,15 @@ impl Discord {
         }
     }
 
+    #[instrument(skip(self))]
     pub fn create_client(&mut self, application_id: String) -> Result<()> {
+        info!(
+            "Creating Discord IPC client with app ID: {}",
+            application_id
+        );
+
         let discord_client = DiscordIpcClient::new(application_id.as_str()).map_err(|e| {
+            error!("Failed to initialize Discord IPC Client: {}", e);
             crate::error::PresenceError::Discord(format!(
                 "Failed to initialize Discord IPC Client: {}",
                 e
@@ -55,18 +63,27 @@ impl Discord {
         })?;
 
         self.client = Some(Mutex::new(discord_client));
+        debug!("Discord IPC client created successfully");
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn connect(&self) -> Result<()> {
+        debug!("Connecting to Discord IPC");
+
         let mut client = self.get_client().await?;
         client.connect().map_err(|e| {
+            error!("Failed to connect to Discord IPC: {}", e);
             crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {}", e))
         })?;
+
+        info!("Successfully connected to Discord IPC");
         Ok(())
     }
 
     pub async fn kill(&self) -> Result<()> {
+        debug!("Killing Discord IPC client");
+
         let mut client = self.get_client().await?;
         client.close().map_err(|e| {
             crate::error::PresenceError::Discord(format!(
@@ -74,6 +91,7 @@ impl Discord {
                 e
             ))
         })?;
+
         Ok(())
     }
 
@@ -85,15 +103,24 @@ impl Discord {
         Ok(client.lock().await)
     }
 
+    #[instrument(skip(self))]
     pub async fn clear_activity(&self) -> Result<()> {
+        debug!("Clearing Discord activity");
+
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {
+            error!("Failed to clear activity: {}", e);
             crate::error::PresenceError::Discord(format!("Failed to clear activity: {}", e))
         })?;
+
+        info!("Discord activity cleared");
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self), fields(
+        state = state.as_deref().unwrap_or("None"),
+        details = details.as_deref().unwrap_or("None")
+    ))]
     pub async fn change_activity(
         &self,
         state: Option<String>,
@@ -128,9 +155,11 @@ impl Discord {
         let activity = activity.assets(assets);
 
         client.set_activity(activity).map_err(|e| {
+            error!("Failed to set activity: {}", e);
             crate::error::PresenceError::Discord(format!("Failed to set activity: {}", e))
         })?;
 
+        debug!("Discord activity updated successfully");
         Ok(())
     }
 }
