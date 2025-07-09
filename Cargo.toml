@@ -15,8 +15,8 @@ zed_extension_api = "0.0.6"
 [workspace]
 members = ["lsp"]
 
-[lints]
-[lints.clippy]
+[workspace.lints]
+[workspace.lints.clippy]
 correctness = "deny"
 suspicious = "warn"
 complexity = "warn"

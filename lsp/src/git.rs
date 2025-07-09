@@ -23,7 +23,7 @@ fn get_repository(path: &str) -> Option<Repository> {
     Repository::open(path).ok()
 }
 
-fn get_main_remote_url(repository: Repository) -> Option<String> {
+fn get_main_remote_url(repository: &Repository) -> Option<String> {
     if let Ok(remote) = repository.find_remote("origin") {
         return remote.url().map(|url| transform_url(url.to_string()));
     }
@@ -46,7 +46,7 @@ fn transform_url(url: String) -> String {
 
     if let Some((_, rest)) = url.split_once('@') {
         if let Some((domain, path)) = rest.split_once(':') {
-            return format!("https://{}/{}", domain, path);
+            return format!("https://{domain}/{path}");
         }
     }
 
@@ -55,7 +55,7 @@ fn transform_url(url: String) -> String {
 
 pub fn get_repository_and_remote(path: &str) -> Option<String> {
     match get_repository(path) {
-        Some(repository) => get_main_remote_url(repository),
+        Some(repository) => get_main_remote_url(&repository),
         None => None,
     }
 }
