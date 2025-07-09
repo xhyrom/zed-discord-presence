@@ -34,12 +34,12 @@ impl ActivityManager {
         let placeholders = Placeholders::new(doc, config, workspace);
 
         ActivityFields::new(
-            &config.state,
-            &config.details,
-            &config.large_image,
-            &config.large_text,
-            &config.small_image,
-            &config.small_text,
+            config.state.as_ref(),
+            config.details.as_ref(),
+            config.large_image.as_ref(),
+            config.large_text.as_ref(),
+            config.small_image.as_ref(),
+            config.small_text.as_ref(),
         )
         .resolve_placeholders(&placeholders)
     }
@@ -48,12 +48,12 @@ impl ActivityManager {
         let placeholders = Placeholders::new(None, config, workspace);
 
         ActivityFields::new(
-            &config.idle.state,
-            &config.idle.details,
-            &config.idle.large_image,
-            &config.idle.large_text,
-            &config.idle.small_image,
-            &config.idle.small_text,
+            config.idle.state.as_ref(),
+            config.idle.details.as_ref(),
+            config.idle.large_image.as_ref(),
+            config.idle.large_text.as_ref(),
+            config.idle.small_image.as_ref(),
+            config.idle.small_text.as_ref(),
         )
         .resolve_placeholders(&placeholders)
     }

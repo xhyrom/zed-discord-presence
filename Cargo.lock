@@ -153,7 +153,6 @@ version = "0.8.1"
 dependencies = [
  "discord-rich-presence",
  "git2",
- "lazy_static",
  "regex",
  "serde_json",
  "tokio",

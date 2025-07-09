@@ -17,21 +17,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use lazy_static::lazy_static;
 use regex::RegexBuilder;
 use serde_json::from_str;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use crate::Document;
 
-lazy_static! {
-    static ref LANGUAGE_MAP: Mutex<HashMap<String, String>> = {
-        let data = include_str!("../../assets/languages.json");
-        let data: HashMap<String, String> = from_str(data).unwrap();
-        Mutex::new(data)
-    };
-}
+static LANGUAGE_MAP: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(|| {
+    let data = include_str!("../../assets/languages.json");
+    let data: HashMap<String, String> = from_str(data).unwrap();
+    Mutex::new(data)
+});
 
 pub fn get_language(document: &Document) -> String {
     let map = LANGUAGE_MAP.lock().unwrap();

@@ -25,7 +25,11 @@ use document::Document;
 use git::get_repository_and_remote;
 use service::{AppState, PresenceService};
 use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{
+    DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
+    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceServerCapabilities,
+};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::{debug, error, info, instrument};
 

@@ -117,6 +117,7 @@ impl Discord {
         state = state.as_deref().unwrap_or("None"),
         details = details.as_deref().unwrap_or("None")
     ))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn change_activity(
         &self,
         state: Option<String>,

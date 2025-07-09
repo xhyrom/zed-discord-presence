@@ -31,20 +31,20 @@ pub struct ActivityFields {
 
 impl ActivityFields {
     pub fn new(
-        state: &Option<String>,
-        details: &Option<String>,
-        large_image: &Option<String>,
-        large_text: &Option<String>,
-        small_image: &Option<String>,
-        small_text: &Option<String>,
+        state: Option<&String>,
+        details: Option<&String>,
+        large_image: Option<&String>,
+        large_text: Option<&String>,
+        small_image: Option<&String>,
+        small_text: Option<&String>,
     ) -> Self {
         Self {
-            state: state.clone(),
-            details: details.clone(),
-            large_image: large_image.clone(),
-            large_text: large_text.clone(),
-            small_image: small_image.clone(),
-            small_text: small_text.clone(),
+            state: state.cloned(),
+            details: details.cloned(),
+            large_image: large_image.cloned(),
+            large_text: large_text.cloned(),
+            small_image: small_image.cloned(),
+            small_text: small_text.cloned(),
         }
     }
 
@@ -59,6 +59,7 @@ impl ActivityFields {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn into_tuple(
         self,
     ) -> (
