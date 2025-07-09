@@ -90,7 +90,7 @@ mod tests {
         let state = Some("Working on {filename}".to_string());
         let details = Some("In {workspace}".to_string());
 
-        let fields = ActivityFields::new(&state, &details, &None, &None, &None, &None);
+        let fields = ActivityFields::new(state.as_ref(), details.as_ref(), None, None, None, None);
 
         assert_eq!(fields.state, Some("Working on {filename}".to_string()));
         assert_eq!(fields.details, Some("In {workspace}".to_string()));
