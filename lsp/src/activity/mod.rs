@@ -35,20 +35,20 @@ impl ActivityManager {
     ) -> ActivityFields {
         let placeholders = Placeholders::new(doc, config, workspace);
 
-        let config = if let Some(doc) = doc {
+        let activity = if let Some(doc) = doc {
             let language = get_language(doc).to_lowercase();
-            config.languages.get(&language).unwrap_or(config)
+            config.languages.get(&language).unwrap_or(&config.activity)
         } else {
-            config
+            &config.activity
         };
 
         ActivityFields::new(
-            config.state.as_ref(),
-            config.details.as_ref(),
-            config.large_image.as_ref(),
-            config.large_text.as_ref(),
-            config.small_image.as_ref(),
-            config.small_text.as_ref(),
+            activity.state.as_ref(),
+            activity.details.as_ref(),
+            activity.large_image.as_ref(),
+            activity.large_text.as_ref(),
+            activity.small_image.as_ref(),
+            activity.small_text.as_ref(),
         )
         .resolve_placeholders(&placeholders)
     }
