@@ -20,7 +20,9 @@
 mod fields;
 pub use fields::ActivityFields;
 
-use crate::{config::Configuration, document::Document, util::Placeholders};
+use crate::{
+    config::Configuration, document::Document, languages::get_language, util::Placeholders,
+};
 
 #[derive(Debug, Clone)]
 pub struct ActivityManager;
@@ -32,6 +34,13 @@ impl ActivityManager {
         workspace: &str,
     ) -> ActivityFields {
         let placeholders = Placeholders::new(doc, config, workspace);
+
+        let config = if let Some(doc) = doc {
+            let language = get_language(doc).to_lowercase();
+            config.languages.get(&language).unwrap_or(config)
+        } else {
+            config
+        };
 
         ActivityFields::new(
             config.state.as_ref(),

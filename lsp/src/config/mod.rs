@@ -21,12 +21,14 @@ mod idle;
 mod rules;
 mod update;
 
+use std::collections::HashMap;
+
 pub use idle::{Idle, IdleAction};
 pub use rules::Rules;
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 use update::{update_optional_string_field, UpdateFromJson};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::error::Result;
 
@@ -47,6 +49,7 @@ pub struct Configuration {
     pub rules: Rules,
     pub idle: Idle,
     pub git_integration: bool,
+    pub languages: HashMap<String, Configuration>,
 }
 
 impl Default for Configuration {
@@ -63,6 +66,7 @@ impl Default for Configuration {
             rules: Rules::default(),
             idle: Idle::default(),
             git_integration: true,
+            languages: HashMap::default(),
         }
     }
 }
@@ -94,6 +98,20 @@ impl UpdateFromJson for Configuration {
 
         if let Some(git_integration) = json.get("git_integration") {
             self.git_integration = git_integration.as_bool().unwrap_or(true);
+        }
+
+        if let Some(languages) = json.get("languages") {
+            for (key, value) in languages.as_object().take().unwrap_or(&Map::default()) {
+                let mut config = Configuration::default();
+                let value = value.clone();
+
+                if let Err(e) = config.update(Some(value)) {
+                    error!("Failed to update config for {} language: {}", key, e);
+                    continue;
+                };
+
+                self.languages.insert(key.to_owned(), config);
+            }
         }
 
         Ok(())
