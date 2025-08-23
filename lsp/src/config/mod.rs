@@ -17,18 +17,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
+mod activity;
 mod idle;
 mod rules;
 mod update;
 
+use std::collections::HashMap;
+
 pub use idle::{Idle, IdleAction};
 pub use rules::Rules;
-use tracing::{debug, info, instrument};
-use update::{update_optional_string_field, UpdateFromJson};
+use tracing::{debug, error, info, instrument};
+use update::UpdateFromJson;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use crate::error::Result;
+use crate::{config::activity::Activity, error::Result};
 
 const DEFAULT_APP_ID: &str = "1263505205522337886";
 const DEFAULT_ICONS_URL: &str =
@@ -38,15 +41,11 @@ const DEFAULT_ICONS_URL: &str =
 pub struct Configuration {
     pub application_id: String,
     pub base_icons_url: String,
-    pub state: Option<String>,
-    pub details: Option<String>,
-    pub large_image: Option<String>,
-    pub large_text: Option<String>,
-    pub small_image: Option<String>,
-    pub small_text: Option<String>,
+    pub activity: Activity,
     pub rules: Rules,
     pub idle: Idle,
     pub git_integration: bool,
+    pub languages: HashMap<String, Activity>,
 }
 
 impl Default for Configuration {
@@ -54,15 +53,11 @@ impl Default for Configuration {
         Self {
             application_id: DEFAULT_APP_ID.to_string(),
             base_icons_url: DEFAULT_ICONS_URL.to_string(),
-            state: Some(String::from("Working on {filename}")),
-            details: Some(String::from("In {workspace}")),
-            large_image: Some(String::from("{base_icons_url}/{language:lo}.png")),
-            large_text: Some(String::from("{language:u}")),
-            small_image: Some(String::from("{base_icons_url}/zed.png")),
-            small_text: Some(String::from("Zed")),
+            activity: Activity::default(),
             rules: Rules::default(),
             idle: Idle::default(),
             git_integration: true,
+            languages: HashMap::default(),
         }
     }
 }
@@ -77,12 +72,7 @@ impl UpdateFromJson for Configuration {
             self.base_icons_url = icons_url.to_string();
         }
 
-        update_optional_string_field!(self, json, state, "state");
-        update_optional_string_field!(self, json, details, "details");
-        update_optional_string_field!(self, json, large_image, "large_image");
-        update_optional_string_field!(self, json, large_text, "large_text");
-        update_optional_string_field!(self, json, small_image, "small_image");
-        update_optional_string_field!(self, json, small_text, "small_text");
+        self.activity.update_from_json(json)?;
 
         if let Some(rules) = json.get("rules") {
             self.rules.update_from_json(rules)?;
@@ -94,6 +84,19 @@ impl UpdateFromJson for Configuration {
 
         if let Some(git_integration) = json.get("git_integration") {
             self.git_integration = git_integration.as_bool().unwrap_or(true);
+        }
+
+        if let Some(languages) = json.get("languages") {
+            for (key, value) in languages.as_object().unwrap_or(&Map::default()) {
+                let mut activity = Activity::default();
+
+                if let Err(e) = activity.update_from_json(value) {
+                    error!("Failed to update config for {} language: {}", key, e);
+                    continue;
+                }
+
+                self.languages.insert(key.to_owned(), activity);
+            }
         }
 
         Ok(())
@@ -141,5 +144,35 @@ mod tests {
         assert_eq!(config.application_id, "test_id");
         assert_eq!(config.base_icons_url, "http://example.com");
         assert!(!config.git_integration);
+    }
+
+    #[test]
+    fn test_update_languages_configuration() {
+        let mut config = Configuration::default();
+        let json = serde_json::json!({
+            "languages": {
+                "rust": {
+                    "state": "Coding Rust",
+                    "details": "In Cargo project",
+                    "git_integration": false
+                },
+                "python": {
+                    "state": "Scripting Python"
+                }
+            }
+        });
+
+        config.update(Some(json)).unwrap();
+
+        assert!(config.languages.contains_key("rust"));
+        assert!(config.languages.contains_key("python"));
+
+        let rust_cfg = config.languages.get("rust").unwrap();
+        assert_eq!(rust_cfg.state.as_deref(), Some("Coding Rust"));
+        assert_eq!(rust_cfg.details.as_deref(), Some("In Cargo project"));
+
+        let py_cfg = config.languages.get("python").unwrap();
+        assert_eq!(py_cfg.state.as_deref(), Some("Scripting Python"));
+        assert_eq!(py_cfg.details.as_deref(), Some("In {workspace}"));
     }
 }

@@ -138,6 +138,31 @@ will display a button to open the Git repository.
 "git_integration": true
 ```
 
+### Per-Language Configuration
+
+The `languages` field allows you to override the default activity settings for specific languages.
+Each key must be the **language name in lowercase**, and the value is an object containing options `state`, `details`, `large_image`, `large_text`, `small_image` and `small_text`.
+
+```jsonc
+"languages": {
+  "rust": {
+    "state": "Hacking on {filename}",
+    "details": "Rustacean at work",
+    "large_image": "{base_icons_url}/rust.png",
+    "large_text": "RUST !!!!",
+    "small_image": "{base_icons_url}/zed.png",
+    "small_text": "Zed"
+  },
+  "python": {
+    // haha i'm cool
+    "large_image": "{base_icons_url}/c.png",
+    "large_text": "C"
+  }
+}
+```
+
+If a language is not specified in the `languages` map, the default top-level `activity` settings will be used instead.
+
 ### Example Configuration
 
 ```jsonc
@@ -183,6 +208,14 @@ will display a button to open the Git repository.
         },
 
         "git_integration": true,
+
+        // Per-language overrides
+        "languages": {
+          "rust": {
+            "state": "Hacking on {filename}",
+            "details": "Rustacean at work",
+          },
+        },
       },
     },
   },
