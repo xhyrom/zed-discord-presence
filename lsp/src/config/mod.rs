@@ -87,13 +87,13 @@ impl UpdateFromJson for Configuration {
         }
 
         if let Some(languages) = json.get("languages") {
-            for (key, value) in languages.as_object().take().unwrap_or(&Map::default()) {
+            for (key, value) in languages.as_object().unwrap_or(&Map::default()) {
                 let mut activity = Activity::default();
 
                 if let Err(e) = activity.update_from_json(value) {
                     error!("Failed to update config for {} language: {}", key, e);
                     continue;
-                };
+                }
 
                 self.languages.insert(key.to_owned(), activity);
             }
