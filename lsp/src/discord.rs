@@ -54,14 +54,9 @@ impl Discord {
             application_id
         );
 
-        let discord_client = DiscordIpcClient::new(application_id).map_err(|e| {
-            error!("Failed to initialize Discord IPC Client: {}", e);
-            crate::error::PresenceError::Discord(format!(
-                "Failed to initialize Discord IPC Client: {e}"
-            ))
-        })?;
-
+        let discord_client = DiscordIpcClient::new(application_id);
         self.client = Some(Mutex::new(discord_client));
+
         debug!("Discord IPC client created successfully");
         Ok(())
     }
