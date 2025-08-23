@@ -7,7 +7,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
-discord-rich-presence = "0.2.4"
+discord-rich-presence = { git = "https://github.com/vionya/discord-rich-presence.git", rev = "eab0b36bd35c5f58cdb8580ab4fdc01f8ff82414" }
 tokio = { version = "1.37.0", features = ["rt-multi-thread", "io-std", "macros", "time"] }
 tower-lsp = "0.20.0"
 git2 = { version = "0.19.0", default-features = false }
