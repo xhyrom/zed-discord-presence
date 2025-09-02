@@ -66,6 +66,7 @@ impl Document {
 
         Ok(relative_path.to_str().unwrap_or("").to_string())
     }
+
     pub fn get_full_directory_name(&self) -> Result<String> {
         let parent_dir = self.path.parent().ok_or_else(|| {
             PresenceError::Config("Could not determine parent directory".to_string())
@@ -73,6 +74,7 @@ impl Document {
 
         Ok(parent_dir.to_str().unwrap_or("").to_string())
     }
+
     pub fn get_directory_name(&self) -> Result<String> {
         let parent_dir = self.path.parent().ok_or_else(|| {
             PresenceError::Config("Could not determine parent directory".to_string())
@@ -84,6 +86,7 @@ impl Document {
 
         Ok(dir_name.to_str().unwrap_or("").to_string())
     }
+
     pub fn get_folder_and_file(&self) -> Result<String> {
         let parent = self.get_directory_name()?;
         let file = self.get_filename()?;
