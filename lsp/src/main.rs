@@ -66,8 +66,15 @@ impl Backend {
         }
     }
 
-    async fn on_change(&self, doc: Document) {
+    async fn on_change(&self, uri: &tower_lsp::lsp_types::Url) {
         debug!("Document changed");
+
+        let doc = {
+            let workspace = self.app_state.workspace.lock().await;
+            let workspace_path = Path::new(workspace.path().unwrap_or(""));
+
+            Document::new(uri, workspace_path)
+        };
 
         if let Err(e) = self.presence_service.update_presence(Some(doc)).await {
             error!("Failed to update presence: {}", e);
@@ -206,22 +213,19 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         debug!("Document opened: {}", params.text_document.uri);
-        self.on_change(Document::new(&params.text_document.uri))
-            .await;
+        self.on_change(&params.text_document.uri).await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
-        self.on_change(Document::new(&params.text_document.uri))
-            .await;
+        self.on_change(&params.text_document.uri).await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         debug!("Document saved: {}", params.text_document.uri);
-        self.on_change(Document::new(&params.text_document.uri))
-            .await;
+        self.on_change(&params.text_document.uri).await;
     }
 }
 

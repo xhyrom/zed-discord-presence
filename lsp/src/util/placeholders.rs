@@ -39,15 +39,32 @@ pub struct Placeholders<'a> {
     workspace: &'a str,
     language: Option<String>,
     base_icons_url: &'a str,
+    relative_file_path: Option<String>,
+    folder_and_file: Option<String>,
+    directory_name: Option<String>,
+    full_directory_name: Option<String>,
 }
 
 impl<'a> Placeholders<'a> {
     pub fn new(doc: Option<&'a Document>, config: &'a Configuration, workspace: &'a str) -> Self {
-        let (filename, language) = if let Some(doc) = doc {
-            let filename = doc.get_filename().unwrap_or_else(|_| "unknown".to_string());
-            (Some(filename), Some(get_language(doc)))
+        let (
+            filename,
+            language,
+            relative_file_path,
+            folder_and_file,
+            directory_name,
+            full_directory_name,
+        ) = if let Some(doc) = doc {
+            (
+                Some(doc.get_filename().unwrap_or_default()),
+                Some(get_language(doc)),
+                Some(doc.get_relative_file_path().unwrap_or_default()),
+                Some(doc.get_folder_and_file().unwrap_or_default()),
+                Some(doc.get_directory_name().unwrap_or_default()),
+                Some(doc.get_full_directory_name().unwrap_or_default()),
+            )
         } else {
-            (None, None)
+            (None, None, None, None, None, None)
         };
 
         Self {
@@ -55,19 +72,37 @@ impl<'a> Placeholders<'a> {
             workspace,
             language,
             base_icons_url: &config.base_icons_url,
+            relative_file_path,
+            folder_and_file,
+            directory_name,
+            full_directory_name,
         }
     }
 
     pub fn replace(&self, text: &str) -> String {
         let filename = self.filename.as_deref().unwrap_or("filename");
         let language = self.language.as_deref().unwrap_or("language");
+        let relative_file_path = self
+            .relative_file_path
+            .as_deref()
+            .unwrap_or("relative_file_path");
+        let folder_and_file = self.folder_and_file.as_deref().unwrap_or("folder_and_file");
+        let directory_name = self.directory_name.as_deref().unwrap_or("directory_name");
+        let full_directory_name = self
+            .full_directory_name
+            .as_deref()
+            .unwrap_or("full_directory_name");
 
         replace_with_capitalization!(
             text,
             "filename" => filename,
             "workspace" => self.workspace,
             "language" => language,
-            "base_icons_url" => self.base_icons_url
+            "base_icons_url" => self.base_icons_url,
+            "relative_file_path" => relative_file_path,
+            "folder_and_file" => folder_and_file,
+            "directory_name" => directory_name,
+            "full_directory_name" => full_directory_name
         )
     }
 }
@@ -83,6 +118,10 @@ mod tests {
             workspace: "my-project",
             language: Some("rust".to_string()),
             base_icons_url: "https://example.com",
+            relative_file_path: Some("src/test.rs".to_string()),
+            folder_and_file: Some("src/test.rs".to_string()),
+            directory_name: Some("src".to_string()),
+            full_directory_name: Some("my-project/src".to_string()),
         };
 
         let result = placeholders.replace("Working on {filename} in {workspace}");

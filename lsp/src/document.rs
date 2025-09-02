@@ -25,15 +25,17 @@ use tower_lsp::lsp_types::Url;
 #[derive(Debug, Clone)]
 pub struct Document {
     path: PathBuf,
+    workspace_root: PathBuf,
 }
 
 impl Document {
-    pub fn new(url: &Url) -> Self {
+    pub fn new(url: &Url, workspace_root: &Path) -> Self {
         let url_path = url.path();
         let path = Path::new(url_path);
 
         Self {
             path: path.to_owned(),
+            workspace_root: workspace_root.to_owned(),
         }
     }
 
@@ -56,6 +58,42 @@ impl Document {
             .to_str()
             .unwrap_or("")
     }
+
+    pub fn get_relative_file_path(&self) -> Result<String> {
+        let relative_path = self.path.strip_prefix(&self.workspace_root).map_err(|_| {
+            PresenceError::Config("File is not within the workspace root".to_string())
+        })?;
+
+        Ok(relative_path.to_str().unwrap_or("").to_string())
+    }
+    pub fn get_full_directory_name(&self) -> Result<String> {
+        let parent_dir = self.path.parent().ok_or_else(|| {
+            PresenceError::Config("Could not determine parent directory".to_string())
+        })?;
+
+        Ok(parent_dir.to_str().unwrap_or("").to_string())
+    }
+    pub fn get_directory_name(&self) -> Result<String> {
+        let parent_dir = self.path.parent().ok_or_else(|| {
+            PresenceError::Config("Could not determine parent directory".to_string())
+        })?;
+
+        let dir_name = parent_dir.file_name().ok_or_else(|| {
+            PresenceError::Config("Could not determine directory name".to_string())
+        })?;
+
+        Ok(dir_name.to_str().unwrap_or("").to_string())
+    }
+    pub fn get_folder_and_file(&self) -> Result<String> {
+        let parent = self.get_directory_name()?;
+        let file = self.get_filename()?;
+
+        Ok(Path::new(&parent)
+            .join(file)
+            .to_str()
+            .unwrap_or("")
+            .to_string())
+    }
 }
 
 #[cfg(test)]
@@ -64,17 +102,23 @@ mod tests {
 
     #[test]
     fn test_document_creation() {
-        let url = Url::parse("file:///home/user/test.rs").unwrap();
-        let doc = Document::new(&url);
+        let url = Url::parse("file:///home/user/project/test.rs").unwrap();
+        let workspace_root = Path::new("/home/user/project");
+        let doc = Document::new(&url, workspace_root);
 
         assert_eq!(doc.get_filename().unwrap(), "test.rs");
         assert_eq!(doc.get_extension(), "rs");
+        assert_eq!(doc.get_relative_file_path().unwrap(), "test.rs");
+        assert_eq!(doc.get_full_directory_name().unwrap(), "/home/user/project");
+        assert_eq!(doc.get_directory_name().unwrap(), "project");
+        assert_eq!(doc.get_folder_and_file().unwrap(), "project/test.rs");
     }
 
     #[test]
     fn test_document_with_encoded_filename() {
-        let url = Url::parse("file:///home/user/test%20file.rs").unwrap();
-        let doc = Document::new(&url);
+        let url = Url::parse("file:///home/user/project/test%20file.rs").unwrap();
+        let workspace_root = Path::new("/home/user/project");
+        let doc = Document::new(&url, workspace_root);
 
         assert_eq!(doc.get_filename().unwrap(), "test file.rs");
     }

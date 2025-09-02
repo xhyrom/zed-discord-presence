@@ -67,13 +67,18 @@ pub fn get_language(document: &Document) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use tower_lsp::lsp_types::Url;
 
     use super::*;
 
     #[test]
     fn test_unicode_perl() {
-        let document = Document::new(&Url::parse("file:///home/user/file.php").unwrap());
+        let url = Url::parse("file:///home/user/project/file.php").unwrap();
+        let workspace_root = Path::new("/home/user/project");
+
+        let document = Document::new(&url, workspace_root);
         let lang = get_language(&document);
         assert_eq!(lang, "php");
     }
