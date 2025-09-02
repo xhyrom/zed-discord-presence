@@ -44,7 +44,7 @@ The `base_icons_url` is the base URL for all language icons. This URL points to 
 
 ### State
 
-The `state` option allows you to set the state message displayed in Discord. The placeholder `{filename}` will be replaced with the current file name.
+The `state` option allows you to set the state message displayed in Discord. You can use [placeholders](#available-placeholders) like `{filename}` which will be replaced with the current file name.
 
 ```jsonc
 "state": "Working on {filename}"
@@ -52,7 +52,7 @@ The `state` option allows you to set the state message displayed in Discord. The
 
 ### Details
 
-The `details` option allows you to set the details message displayed in Discord. The placeholder `{workspace}` will be replaced with the current workspace name.
+The `details` option allows you to set the details message displayed in Discord. You can use [placeholders](#available-placeholders) like `{workspace}` which will be replaced with the current workspace name.
 
 ```jsonc
 "details": "In {workspace}"
@@ -60,7 +60,7 @@ The `details` option allows you to set the details message displayed in Discord.
 
 ### Large Image
 
-The `large_image` option specifies the URL for the large image displayed in Discord. The placeholders `{base_icons_url}` and `{language}` will be replaced accordingly.
+The `large_image` option specifies the URL for the large image displayed in Discord. You can use [placeholders](#available-placeholders) like `{base_icons_url}` and `{language}` which will be replaced accordingly.
 The `:lo` modifier is used to convert the language name to lowercase.
 
 ```jsonc
@@ -69,7 +69,7 @@ The `:lo` modifier is used to convert the language name to lowercase.
 
 ### Large Text
 
-The `large_text` option specifies the text displayed when hovering over the large image. The `:u` modifier capitalizes the first letter of the language name.
+The `large_text` option specifies the text displayed when hovering over the large image. You can use [placeholders](#available-placeholders) like `{language}` with the `:u` modifier to capitalize the first letter.
 
 ```jsonc
 "large_text": "{language:u}"
@@ -77,7 +77,7 @@ The `large_text` option specifies the text displayed when hovering over the larg
 
 ### Small Image
 
-The `small_image` option specifies the URL for the small image displayed in Discord.
+The `small_image` option specifies the URL for the small image displayed in Discord. You can use [placeholders](#available-placeholders) here as well.
 
 ```jsonc
 "small_image": "{base_icons_url}/zed.png"
@@ -85,7 +85,7 @@ The `small_image` option specifies the URL for the small image displayed in Disc
 
 ### Small Text
 
-The `small_text` option specifies the text displayed when hovering over the small image.
+The `small_text` option specifies the text displayed when hovering over the small image. You can use [placeholders](#available-placeholders) here as well.
 
 ```jsonc
 "small_text": "Zed"
@@ -102,7 +102,7 @@ The `action` determines what happens when you go idle:
 - `change_activity` changes the activity to idle with the specified details
 - `clear_activity` hides the activity
 
-The `state`, `details`, `large_image`, `large_text`, `small_image`, and `small_text` options specify the messages and images to display when idle.
+The `state`, `details`, `large_image`, `large_text`, `small_image`, and `small_text` options specify the messages and images to display when idle. All of these can use [placeholders](#available-placeholders).
 
 ```jsonc
 "idle": {
@@ -141,7 +141,7 @@ will display a button to open the Git repository.
 ### Per-Language Configuration
 
 The `languages` field allows you to override the default activity settings for specific languages.
-Each key must be the **language name in lowercase**, and the value is an object containing options `state`, `details`, `large_image`, `large_text`, `small_image` and `small_text`.
+Each key must be the **language name in lowercase**, and the value is an object containing options `state`, `details`, `large_image`, `large_text`, `small_image` and `small_text`. All of these can use [placeholders](#available-placeholders).
 
 ```jsonc
 "languages": {
@@ -223,3 +223,23 @@ If a language is not specified in the `languages` map, the default top-level `ac
 ```
 
 You can also set any option to `null` to unset it, except for `base_icons_url`, `rules`, and `git_integration`.
+
+### Available Placeholders
+
+You can use the following placeholders in your configuration:
+
+- `{filename}` - Current file name (e.g., "main.rs")
+- `{workspace}` - Current workspace name (e.g., "my-project")
+- `{language}` - Programming language (e.g., "rust")
+- `{base_icons_url}` - Base URL for icons (from configuration)
+- `{relative_file_path}` - File path relative to workspace root (e.g., "src/main.rs")
+- `{folder_and_file}` - Parent directory and file name (e.g., "src/main.rs")
+- `{directory_name}` - Name of parent directory (e.g., "src")
+- `{full_directory_name}` - Full path of parent directory (e.g., "/home/user/project/src")
+
+Modifiers can be applied to any placeholder:
+
+- `:u` - Capitalizes the first letter (e.g., `{language:u}` → "Rust")
+- `:lo` - Converts to lowercase (e.g., `{language:lo}` → "rust")
+
+Example: `"Working on {filename} in {directory_name:u}"`

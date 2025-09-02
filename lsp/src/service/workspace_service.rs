@@ -54,4 +54,8 @@ impl WorkspaceService {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    pub fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
 }
