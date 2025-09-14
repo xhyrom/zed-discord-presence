@@ -291,7 +291,7 @@
   "regex:\\.ps[md]?1$": "powershell",
   ".ps1xml": "powershell",
   ".prettierignore": "prettier",
-  "prisma.yml": "prisma",
+  ".prisma": "prisma",
   ".pde": "processing",
   ".jade": "pug",
   ".pug": "pug",
