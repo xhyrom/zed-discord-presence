@@ -124,7 +124,7 @@ impl Discord {
         git_remote_url: Option<String>,
     ) -> Result<()> {
         let mut client = self.get_client().await?;
-        let timestamp: i64 = i64::try_from(self.start_timestamp.as_millis()).map_err(|e| {
+        let timestamp: i64 = i64::try_from(self.start_timestamp.as_secs()).map_err(|e| {
             error!("Failed to convert timestamp: {}", e);
             crate::error::PresenceError::Discord(format!("Failed to convert timestamp: {e}"))
         })?;
