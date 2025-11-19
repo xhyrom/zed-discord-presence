@@ -60,6 +60,11 @@ jobs:
             runner: windows-latest
             archive: zip
             binary: cargo
+
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            archive: zip
+            binary: cargo
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -81,7 +86,7 @@ jobs:
         id: vars
         run: |
           BIN_SUFFIX=""
-          if [[ "${{ matrix.runner }}" == "windows-latest" ]]; then
+          if [[ "${{ matrix.runner }}" == "windows-latest" || "${{ matrix.runner }}" == "windows-11-arm" ]]; then
             BIN_SUFFIX=".exe"
           fi
 
@@ -102,7 +107,7 @@ jobs:
             ARCHIVE_PATH="tmp/${ARCHIVE_NAME}.zip"
 
             cd tmp
-            if [[ "${{ matrix.runner }}" == "windows-latest" ]]; then
+            if [[ "${{ matrix.runner }}" == "windows-latest" || "${{ matrix.runner }}" == "windows-11-arm" ]]; then
               7z a "../${ARCHIVE_PATH}" "${ARCHIVE_NAME}"
             else
               zip -r "../${ARCHIVE_PATH}" "/${ARCHIVE_NAME}"
