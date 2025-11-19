@@ -22,16 +22,11 @@ use crate::error::Result;
 use super::update::UpdateFromJson;
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub enum RulesMode {
     Whitelist,
+    #[default]
     Blacklist,
-}
-
-impl Default for RulesMode {
-    fn default() -> Self {
-        Self::Blacklist
-    }
 }
 
 #[derive(Default, Debug, Clone)]

@@ -25,16 +25,11 @@ use std::time::Duration;
 
 const DEFAULT_IDLE_TIMEOUT: u64 = 300; // 5 minutes
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub enum IdleAction {
     ClearActivity,
+    #[default]
     ChangeActivity,
-}
-
-impl Default for IdleAction {
-    fn default() -> Self {
-        Self::ChangeActivity
-    }
 }
 
 #[derive(Debug, Clone)]

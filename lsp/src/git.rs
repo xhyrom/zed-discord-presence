@@ -50,7 +50,7 @@ fn transform_url(url: String) -> String {
         }
     }
 
-    url.to_string()
+    url.clone()
 }
 
 pub fn get_repository_and_remote(path: &str) -> Option<String> {

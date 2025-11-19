@@ -39,7 +39,7 @@ pub fn get_language(document: &Document) -> String {
     let extension = format!(".{}", document.get_extension());
 
     if let Some(s) = map.get(&filename) {
-        return s.to_string();
+        return s.clone();
     }
 
     for (pattern, language) in map.iter() {
@@ -53,13 +53,13 @@ pub fn get_language(document: &Document) -> String {
             .build()
         {
             if re.is_match(&filename) || re.is_match(&extension) {
-                return language.to_string();
+                return language.clone();
             }
         }
     }
 
     if let Some(s) = map.get(&extension) {
-        return s.to_string();
+        return s.clone();
     }
 
     String::from("text")
