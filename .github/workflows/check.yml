@@ -57,6 +57,11 @@ jobs:
             runner: windows-latest
             archive: zip
             binary: cargo
+
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            archive: zip
+            binary: cargo
     steps:
       - name: checkout
         uses: actions/checkout@v4
