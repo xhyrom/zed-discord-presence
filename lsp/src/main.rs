@@ -86,9 +86,10 @@ impl Backend {
     fn resolve_workspace_path(params: &InitializeParams) -> PathBuf {
         if let Some(folders) = &params.workspace_folders {
             if let Some(first_folder) = folders.first() {
-                let path = Path::new(first_folder.uri.path()).to_owned();
-                debug!("Using workspace folder: {}", path.display());
-                return path;
+                if let Ok(path) = first_folder.uri.to_file_path() {
+                    debug!("Using workspace folder: {}", path.display());
+                    return path;
+                }
             }
         }
 
@@ -96,9 +97,12 @@ impl Backend {
             "Failed to get workspace path - neither workspace_folders nor root_uri is present",
         );
 
-        let path = Path::new(root_uri.path()).to_owned();
-        debug!("Using root URI: {}", path.display());
-        path
+        if let Ok(path) = root_uri.to_file_path() {
+            debug!("Using root URI: {}", path.display());
+            return path;
+        }
+
+        panic!("Failed to resolve workspace path from URI")
     }
 }
 
