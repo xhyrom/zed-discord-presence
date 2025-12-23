@@ -127,12 +127,23 @@ impl LanguageServer for Backend {
         // Set git remote URL
         {
             let mut git_remote_url = self.app_state.git_remote_url.lock().await;
-            let remote_url = get_repository_and_remote(workspace_path.to_str().unwrap_or(""));
+            let path_str = workspace_path.to_str().unwrap_or("");
+
+            // Fix windows path
+            let clean_path = if cfg!(target_os = "windows") && path_str.starts_with('/') {
+                &path_str[1..]
+            } else {
+                path_str
+            };
+
+            info!("Checking git repo at: {}", clean_path);
+
+            let remote_url = get_repository_and_remote(clean_path);
 
             if let Some(ref url) = remote_url {
                 info!("Git remote URL found: {}", url);
             } else {
-                debug!("No git remote URL found");
+                debug!("No git remote URL found at path: {}", clean_path);
             }
 
             *git_remote_url = remote_url;

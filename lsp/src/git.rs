@@ -18,6 +18,7 @@
  */
 
 use git2::Repository;
+use std::path::Path;
 
 fn get_repository(path: &str) -> Option<Repository> {
     Repository::open(path).ok()
@@ -40,17 +41,36 @@ fn get_main_remote_url(repository: &Repository) -> Option<String> {
 }
 
 fn transform_url(url: String) -> String {
-    if url.starts_with("https://") {
+    if url.starts_with("https://") || url.starts_with("http://") {
         return url;
     }
 
+    let mut url = url;
+
+    if url.starts_with("ssh://") {
+        url = url.replace("ssh://", "");
+    } else if url.starts_with("git://") {
+        url = url.replace("git://", "");
+    }
+
     if let Some((_, rest)) = url.split_once('@') {
-        if let Some((domain, path)) = rest.split_once(':') {
-            return format!("https://{domain}/{path}");
+        url = rest.to_string();
+    }
+
+    if let Some((domain, path)) = url.split_once(':') {
+        if !path.starts_with("//") {
+            url = format!("{domain}/{path}");
         }
     }
 
-    url.clone()
+    if Path::new(&url)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("git"))
+    {
+        url = url[..url.len() - 4].to_string();
+    }
+
+    format!("https://{url}")
 }
 
 pub fn get_repository_and_remote(path: &str) -> Option<String> {
