@@ -53,8 +53,12 @@ impl ActivityManager {
         .resolve_placeholders(&placeholders)
     }
 
-    pub fn build_idle_activity_fields(config: &Configuration, workspace: &str) -> ActivityFields {
-        let placeholders = Placeholders::new(None, config, workspace);
+    pub fn build_idle_activity_fields(
+        doc: Option<&Document>,
+        config: &Configuration,
+        workspace: &str,
+    ) -> ActivityFields {
+        let placeholders = Placeholders::new(doc, config, workspace);
 
         ActivityFields::new(
             config.idle.state.as_ref(),

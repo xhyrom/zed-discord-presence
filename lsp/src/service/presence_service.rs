@@ -38,6 +38,12 @@ impl PresenceService {
     }
 
     pub async fn update_presence(&self, doc: Option<Document>) -> Result<()> {
+        // Store the last document for idle use
+        {
+            let mut last_doc = self.state.last_document.lock().await;
+            (*last_doc).clone_from(&doc);
+        }
+
         // Reset idle timeout if document changed
         if doc.is_some() {
             self.reset_idle_timeout().await?;
@@ -125,6 +131,7 @@ impl PresenceService {
                 Arc::clone(&self.state.discord),
                 Arc::clone(&self.state.config),
                 Arc::clone(&self.state.git_remote_url),
+                Arc::clone(&self.state.last_document),
                 workspace_name,
             )
             .await;

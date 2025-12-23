@@ -26,6 +26,7 @@ use crate::{
     activity::ActivityManager,
     config::{Configuration, IdleAction},
     discord::Discord,
+    document::Document,
 };
 
 #[derive(Debug)]
@@ -45,6 +46,7 @@ impl IdleManager {
         discord: Arc<Mutex<Discord>>,
         config: Arc<Mutex<Configuration>>,
         git_remote_url: Arc<Mutex<Option<String>>>,
+        last_document: Arc<Mutex<Option<Document>>>,
         workspace: String,
     ) {
         let mut handle_guard = self.handle.lock().await;
@@ -72,8 +74,11 @@ impl IdleManager {
                     let _ = discord_guard.clear_activity().await; // Ignore errors in background task
                 }
                 IdleAction::ChangeActivity => {
+                    let doc = last_document.lock().await;
+                    let doc = doc.as_ref();
+
                     let activity_fields =
-                        ActivityManager::build_idle_activity_fields(&config_guard, &workspace);
+                        ActivityManager::build_idle_activity_fields(doc, &config_guard, &workspace);
 
                     let git_url = if config_guard.git_integration {
                         let git_guard = git_remote_url.lock().await;
