@@ -23,7 +23,7 @@ mod workspace_service;
 pub use presence_service::PresenceService;
 pub use workspace_service::WorkspaceService;
 
-use crate::{config::Configuration, discord::Discord};
+use crate::{config::Configuration, discord::Discord, document::Document};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -33,6 +33,7 @@ pub struct AppState {
     pub config: Arc<Mutex<Configuration>>,
     pub workspace: Arc<Mutex<WorkspaceService>>,
     pub git_remote_url: Arc<Mutex<Option<String>>>,
+    pub last_document: Arc<Mutex<Option<Document>>>,
 }
 
 impl AppState {
@@ -42,6 +43,7 @@ impl AppState {
             config: Arc::new(Mutex::new(Configuration::default())),
             workspace: Arc::new(Mutex::new(WorkspaceService::new())),
             git_remote_url: Arc::new(Mutex::new(None)),
+            last_document: Arc::new(Mutex::new(None)),
         }
     }
 }
