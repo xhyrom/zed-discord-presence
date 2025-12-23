@@ -41,7 +41,7 @@ impl PresenceService {
         // Store the last document for idle use
         {
             let mut last_doc = self.state.last_document.lock().await;
-            *last_doc = doc.clone();
+            (*last_doc).clone_from(&doc)
         }
 
         // Reset idle timeout if document changed
