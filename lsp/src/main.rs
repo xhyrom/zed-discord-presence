@@ -239,7 +239,9 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
         
-        // Extract line number from the last content change if available
+        // Extract line number from the last content change if available.
+        // We use the last change because it represents the most recent cursor position
+        // after all edits in this batch have been applied.
         let line_number = params
             .content_changes
             .last()

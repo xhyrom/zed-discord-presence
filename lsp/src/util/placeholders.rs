@@ -19,6 +19,9 @@
 
 use crate::{config::Configuration, languages::get_language, Document};
 
+/// Default line number to display when line information is not available
+const DEFAULT_LINE_NUMBER: &str = "0";
+
 macro_rules! replace_with_capitalization {
     ($text:expr, $($placeholder:expr => $value:expr),*) => {{
         let mut result = $text.to_string();
@@ -100,7 +103,7 @@ impl<'a> Placeholders<'a> {
         // Convert 0-indexed line number to 1-indexed for display
         let line_number_str = self
             .line_number
-            .map_or_else(|| "0".to_string(), |n| (n + 1).to_string());
+            .map_or_else(|| DEFAULT_LINE_NUMBER.to_string(), |n| (n + 1).to_string());
 
         let mut result = replace_with_capitalization!(
             text,
