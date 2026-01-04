@@ -66,14 +66,18 @@ impl Backend {
         }
     }
 
-    async fn on_change(&self, uri: &tower_lsp::lsp_types::Url) {
+    async fn on_change(&self, uri: &tower_lsp::lsp_types::Url, line_number: Option<u32>) {
         debug!("Document changed");
 
         let doc = {
             let workspace = self.app_state.workspace.lock().await;
             let workspace_path = Path::new(workspace.path().unwrap_or(""));
 
-            Document::new(uri, workspace_path)
+            if let Some(line) = line_number {
+                Document::with_line_number(uri, workspace_path, line)
+            } else {
+                Document::new(uri, workspace_path)
+            }
         };
 
         if let Err(e) = self.presence_service.update_presence(Some(doc)).await {
@@ -228,19 +232,27 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         debug!("Document opened: {}", params.text_document.uri);
-        self.on_change(&params.text_document.uri).await;
+        self.on_change(&params.text_document.uri, None).await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
-        self.on_change(&params.text_document.uri).await;
+        
+        // Extract line number from the last content change if available
+        let line_number = params
+            .content_changes
+            .last()
+            .and_then(|change| change.range.as_ref())
+            .map(|range| range.start.line);
+        
+        self.on_change(&params.text_document.uri, line_number).await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         debug!("Document saved: {}", params.text_document.uri);
-        self.on_change(&params.text_document.uri).await;
+        self.on_change(&params.text_document.uri, None).await;
     }
 }
 

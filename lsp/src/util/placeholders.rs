@@ -43,6 +43,7 @@ pub struct Placeholders<'a> {
     folder_and_file: Option<String>,
     directory_name: Option<String>,
     full_directory_name: Option<String>,
+    line_number: Option<u32>,
 }
 
 impl<'a> Placeholders<'a> {
@@ -54,6 +55,7 @@ impl<'a> Placeholders<'a> {
             folder_and_file,
             directory_name,
             full_directory_name,
+            line_number,
         ) = if let Some(doc) = doc {
             (
                 Some(doc.get_filename().unwrap_or_default()),
@@ -62,9 +64,10 @@ impl<'a> Placeholders<'a> {
                 Some(doc.get_folder_and_file().unwrap_or_default()),
                 Some(doc.get_directory_name().unwrap_or_default()),
                 Some(doc.get_full_directory_name().unwrap_or_default()),
+                doc.get_line_number(),
             )
         } else {
-            (None, None, None, None, None, None)
+            (None, None, None, None, None, None, None)
         };
 
         Self {
@@ -76,6 +79,7 @@ impl<'a> Placeholders<'a> {
             folder_and_file,
             directory_name,
             full_directory_name,
+            line_number,
         }
     }
 
@@ -92,8 +96,13 @@ impl<'a> Placeholders<'a> {
             .full_directory_name
             .as_deref()
             .unwrap_or("full_directory_name");
+        
+        // Convert 0-indexed line number to 1-indexed for display
+        let line_number_str = self
+            .line_number
+            .map_or_else(|| "0".to_string(), |n| (n + 1).to_string());
 
-        replace_with_capitalization!(
+        let mut result = replace_with_capitalization!(
             text,
             "filename" => filename,
             "workspace" => self.workspace,
@@ -103,7 +112,12 @@ impl<'a> Placeholders<'a> {
             "folder_and_file" => folder_and_file,
             "directory_name" => directory_name,
             "full_directory_name" => full_directory_name
-        )
+        );
+        
+        // Replace line_number placeholder (no capitalization variants needed for numbers)
+        result = result.replace("{line_number}", &line_number_str);
+        
+        result
     }
 }
 
@@ -122,6 +136,7 @@ mod tests {
             folder_and_file: Some("src/test.rs".to_string()),
             directory_name: Some("src".to_string()),
             full_directory_name: Some("my-project/src".to_string()),
+            line_number: Some(41), // 0-indexed, so will display as 42
         };
 
         let result = placeholders.replace("Working on {filename} in {workspace}");
@@ -129,5 +144,8 @@ mod tests {
 
         let result = placeholders.replace("{language:u} file");
         assert_eq!(result, "Rust file");
+        
+        let result = placeholders.replace("Line {line_number}");
+        assert_eq!(result, "Line 42");
     }
 }

@@ -26,6 +26,7 @@ use tower_lsp::lsp_types::Url;
 pub struct Document {
     path: PathBuf,
     workspace_root: PathBuf,
+    line_number: Option<u32>,
 }
 
 impl Document {
@@ -36,7 +37,23 @@ impl Document {
         Self {
             path: path.to_owned(),
             workspace_root: workspace_root.to_owned(),
+            line_number: None,
         }
+    }
+
+    pub fn with_line_number(url: &Url, workspace_root: &Path, line_number: u32) -> Self {
+        let url_path = url.path();
+        let path = Path::new(url_path);
+
+        Self {
+            path: path.to_owned(),
+            workspace_root: workspace_root.to_owned(),
+            line_number: Some(line_number),
+        }
+    }
+
+    pub fn get_line_number(&self) -> Option<u32> {
+        self.line_number
     }
 
     pub fn get_filename(&self) -> Result<String> {

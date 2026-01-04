@@ -86,10 +86,10 @@ The `base_icons_url` is the base URL for all language icons. This URL points to 
 
 ### State
 
-The `state` option allows you to set the state message displayed in Discord. You can use [placeholders](#available-placeholders) like `{filename}` which will be replaced with the current file name.
+The `state` option allows you to set the state message displayed in Discord. You can use [placeholders](#available-placeholders) like `{filename}` and `{line_number}` which will be replaced with the current file name and line number.
 
 ```jsonc
-"state": "Working on {filename}"
+"state": "Working on {filename}:{line_number}"
 ```
 
 ### Details
@@ -278,8 +278,9 @@ You can use the following placeholders in your configuration:
 - `{folder_and_file}` - Parent directory and file name (e.g., "src/main.rs")
 - `{directory_name}` - Name of parent directory (e.g., "src")
 - `{full_directory_name}` - Full path of parent directory (e.g., "/home/user/project/src")
+- `{line_number}` - Current line number (e.g., "42")
 
-Modifiers can be applied to any placeholder:
+Modifiers can be applied to any placeholder except `{line_number}`:
 
 - `:u` - Capitalizes the first letter (e.g., `{language:u}` → "Rust")
 - `:lo` - Converts to lowercase (e.g., `{language:lo}` → "rust")
