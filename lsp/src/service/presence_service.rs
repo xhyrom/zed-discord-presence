@@ -125,7 +125,6 @@ impl PresenceService {
             let workspace = self.state.workspace.lock().await;
             workspace.name().to_string()
         };
-
         self.idle_manager
             .reset_timeout(
                 Arc::clone(&self.state.discord),

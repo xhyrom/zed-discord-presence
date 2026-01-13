@@ -168,6 +168,8 @@ impl Discord {
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {
             error!("Failed to clear activity: {}", e);
+            // Mark as disconnected so next attempt will reconnect
+            self.connected.store(false, Ordering::SeqCst);
             crate::error::PresenceError::Discord(format!("Failed to clear activity: {e}"))
         })?;
 
@@ -218,6 +220,8 @@ impl Discord {
 
         client.set_activity(activity).map_err(|e| {
             error!("Failed to set activity: {}", e);
+            // Mark as disconnected so next attempt will reconnect
+            self.connected.store(false, Ordering::SeqCst);
             crate::error::PresenceError::Discord(format!("Failed to set activity: {e}"))
         })?;
 
