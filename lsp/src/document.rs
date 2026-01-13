@@ -125,7 +125,7 @@ fn format_file_size(bytes: u64) -> String {
     } else if bytes >= KB {
         format!("{:.1} KB", bytes as f64 / KB as f64)
     } else {
-        format!("{bytes} bytes")
+        format!("{} byte{}", bytes, if bytes == 1 { "" } else { "s" })
     }
 }
 
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn test_format_file_size_bytes() {
         assert_eq!(format_file_size(0), "0 bytes");
-        assert_eq!(format_file_size(1), "1 bytes");
+        assert_eq!(format_file_size(1), "1 byte");
         assert_eq!(format_file_size(512), "512 bytes");
         assert_eq!(format_file_size(1023), "1023 bytes");
     }
