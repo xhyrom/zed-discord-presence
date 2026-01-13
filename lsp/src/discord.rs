@@ -17,6 +17,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -24,14 +26,22 @@ use discord_rich_presence::{
     activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::{error::Result, util};
+
+/// Maximum number of connection retries
+const MAX_RETRIES: u32 = 5;
+/// Initial delay between retries in milliseconds
+const INITIAL_DELAY_MS: u64 = 500;
+/// Maximum delay between retries in milliseconds
+const MAX_DELAY_MS: u64 = 10_000;
 
 #[derive(Debug)]
 pub struct Discord {
     client: Option<Mutex<DiscordIpcClient>>,
     start_timestamp: Duration,
+    connected: Arc<AtomicBool>,
 }
 
 impl Discord {
@@ -44,7 +54,13 @@ impl Discord {
         Self {
             client: None,
             start_timestamp: since_epoch,
+            connected: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Returns whether the Discord IPC client is currently connected.
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::SeqCst)
     }
 
     #[instrument(skip(self))]
@@ -67,16 +83,67 @@ impl Discord {
 
         let mut client = self.get_client().await?;
         client.connect().map_err(|e| {
+            self.connected.store(false, Ordering::SeqCst);
             error!("Failed to connect to Discord IPC: {}", e);
             crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {e}"))
         })?;
 
+        self.connected.store(true, Ordering::SeqCst);
         info!("Successfully connected to Discord IPC");
         Ok(())
     }
 
+    /// Connects to Discord IPC with exponential backoff retry.
+    /// Will retry up to `MAX_RETRIES` times with increasing delays.
+    #[instrument(skip(self))]
+    pub async fn connect_with_retry(&self) -> Result<()> {
+        let mut delay = Duration::from_millis(INITIAL_DELAY_MS);
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.connect().await {
+                Ok(()) => {
+                    info!("Connected to Discord IPC on attempt {}", attempt);
+                    return Ok(());
+                }
+                Err(e) => {
+                    if attempt < MAX_RETRIES {
+                        warn!(
+                            "Connection attempt {}/{} failed: {}. Retrying in {:?}...",
+                            attempt, MAX_RETRIES, e, delay
+                        );
+                        tokio::time::sleep(delay).await;
+                        delay = (delay * 2).min(Duration::from_millis(MAX_DELAY_MS));
+                    } else {
+                        error!(
+                            "Failed to connect to Discord after {} attempts: {}",
+                            MAX_RETRIES, e
+                        );
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Err(crate::error::PresenceError::Discord(
+            "Failed to connect after all retries".into(),
+        ))
+    }
+
+    /// Attempts to reconnect to Discord, closing any existing connection first.
+    #[instrument(skip(self))]
+    pub async fn reconnect(&self) -> Result<()> {
+        info!("Attempting to reconnect to Discord IPC");
+        self.connected.store(false, Ordering::SeqCst);
+
+        // Try to close existing connection (ignore errors)
+        let _ = self.kill().await;
+
+        self.connect_with_retry().await
+    }
+
     pub async fn kill(&self) -> Result<()> {
         debug!("Killing Discord IPC client");
+        self.connected.store(false, Ordering::SeqCst);
 
         let mut client = self.get_client().await?;
         client.close().map_err(|e| {
@@ -156,5 +223,51 @@ impl Discord {
 
         debug!("Discord activity updated successfully");
         Ok(())
+    }
+
+    /// Changes activity with automatic reconnection on failure.
+    /// If not connected, attempts to reconnect first.
+    /// If activity update fails, marks connection as disconnected for future reconnection.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn change_activity_with_reconnect(
+        &self,
+        state: Option<String>,
+        details: Option<String>,
+        large_image: Option<String>,
+        large_text: Option<String>,
+        small_image: Option<String>,
+        small_text: Option<String>,
+        git_remote_url: Option<String>,
+    ) -> Result<()> {
+        // If not connected, try to reconnect first
+        if !self.is_connected() {
+            warn!("Discord not connected, attempting reconnection...");
+            if let Err(e) = self.reconnect().await {
+                debug!("Reconnection failed: {}", e);
+                return Err(e);
+            }
+        }
+
+        // Try to update activity
+        match self
+            .change_activity(
+                state.clone(),
+                details.clone(),
+                large_image.clone(),
+                large_text.clone(),
+                small_image.clone(),
+                small_text.clone(),
+                git_remote_url.clone(),
+            )
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Connection may have dropped, mark as disconnected
+                warn!("Activity update failed, marking as disconnected: {}", e);
+                self.connected.store(false, Ordering::SeqCst);
+                Err(e)
+            }
+        }
     }
 }
