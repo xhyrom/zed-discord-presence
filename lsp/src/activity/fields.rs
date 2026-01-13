@@ -58,27 +58,6 @@ impl ActivityFields {
             small_text: self.small_text.map(|text| placeholders.replace(&text)),
         }
     }
-
-    #[allow(clippy::type_complexity)]
-    pub fn into_tuple(
-        self,
-    ) -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
-        (
-            self.state,
-            self.details,
-            self.large_image,
-            self.large_text,
-            self.small_image,
-            self.small_text,
-        )
-    }
 }
 
 #[cfg(test)]
