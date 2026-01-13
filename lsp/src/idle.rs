@@ -97,7 +97,7 @@ impl IdleManager {
                         activity_fields.into_tuple();
 
                     let _ = discord_guard
-                        .change_activity(
+                        .change_activity_with_reconnect(
                             state,
                             details,
                             large_image,

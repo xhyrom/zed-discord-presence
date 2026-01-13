@@ -61,7 +61,7 @@ impl PresenceService {
     pub async fn initialize_discord(&self, application_id: &str) -> Result<()> {
         let mut discord = self.state.discord.lock().await;
         discord.create_client(application_id)?;
-        discord.connect().await?;
+        discord.connect_with_retry().await?;
         Ok(())
     }
 
@@ -108,7 +108,7 @@ impl PresenceService {
             activity_fields.into_tuple();
 
         discord
-            .change_activity(
+            .change_activity_with_reconnect(
                 state,
                 details,
                 large_image,
@@ -127,7 +127,6 @@ impl PresenceService {
             let workspace = self.state.workspace.lock().await;
             workspace.name().to_string()
         };
-
         self.idle_manager
             .reset_timeout(
                 Arc::clone(&self.state.discord),
