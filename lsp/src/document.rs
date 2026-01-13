@@ -97,6 +97,36 @@ impl Document {
             .unwrap_or("")
             .to_string())
     }
+
+    /// Gets the file size in bytes.
+    pub fn get_file_size(&self) -> Result<u64> {
+        std::fs::metadata(&self.path)
+            .map(|m| m.len())
+            .map_err(|e| PresenceError::Config(format!("Failed to get file size: {e}")))
+    }
+
+    /// Gets the file size in a human-readable format (e.g., "1.2 KB").
+    pub fn get_formatted_file_size(&self) -> String {
+        match self.get_file_size() {
+            Ok(size) => format_file_size(size),
+            Err(_) => "unknown".to_string(),
+        }
+    }
+}
+
+/// Formats a file size in bytes to a human-readable string.
+#[allow(clippy::cast_precision_loss)]
+fn format_file_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 #[cfg(test)]

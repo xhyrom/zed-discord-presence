@@ -32,8 +32,9 @@ impl ActivityManager {
         doc: Option<&Document>,
         config: &Configuration,
         workspace: &str,
+        git_branch: Option<String>,
     ) -> ActivityFields {
-        let placeholders = Placeholders::new(doc, config, workspace);
+        let placeholders = Placeholders::new(doc, config, workspace, git_branch);
 
         let activity = if let Some(doc) = doc {
             let language = get_language(doc).to_lowercase();
@@ -57,8 +58,9 @@ impl ActivityManager {
         doc: Option<&Document>,
         config: &Configuration,
         workspace: &str,
+        git_branch: Option<String>,
     ) -> ActivityFields {
-        let placeholders = Placeholders::new(doc, config, workspace);
+        let placeholders = Placeholders::new(doc, config, workspace, git_branch);
 
         ActivityFields::new(
             config.idle.state.as_ref(),

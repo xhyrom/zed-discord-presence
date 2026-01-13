@@ -33,6 +33,7 @@ pub struct AppState {
     pub config: Arc<Mutex<Configuration>>,
     pub workspace: Arc<Mutex<WorkspaceService>>,
     pub git_remote_url: Arc<Mutex<Option<String>>>,
+    pub git_branch: Arc<Mutex<Option<String>>>,
     pub last_document: Arc<Mutex<Option<Document>>>,
 }
 
@@ -43,6 +44,7 @@ impl AppState {
             config: Arc::new(Mutex::new(Configuration::default())),
             workspace: Arc::new(Mutex::new(WorkspaceService::new())),
             git_remote_url: Arc::new(Mutex::new(None)),
+            git_branch: Arc::new(Mutex::new(None)),
             last_document: Arc::new(Mutex::new(None)),
         }
     }

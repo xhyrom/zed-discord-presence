@@ -73,6 +73,24 @@ fn transform_url(url: String) -> String {
     format!("https://{url}")
 }
 
+/// Gets the current branch name from a repository path.
+/// Returns the branch name if on a branch, or a short commit hash if in detached HEAD state.
+/// Returns None if the path is not a git repository or an error occurs.
+pub fn get_current_branch(path: &str) -> Option<String> {
+    let repo = get_repository(path)?;
+    let head = repo.head().ok()?;
+
+    if head.is_branch() {
+        head.shorthand().map(str::to_string)
+    } else {
+        // Detached HEAD - return short commit hash
+        head.target().map(|oid| {
+            let hex = oid.to_string();
+            hex[..7.min(hex.len())].to_string()
+        })
+    }
+}
+
 pub fn get_repository_and_remote(path: &str) -> Option<String> {
     match get_repository(path) {
         Some(repository) => get_main_remote_url(&repository),
