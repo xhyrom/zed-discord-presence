@@ -93,19 +93,8 @@ impl IdleManager {
                         None
                     };
 
-                    let (state, details, large_image, large_text, small_image, small_text) =
-                        activity_fields.into_tuple();
-
                     let _ = discord_guard
-                        .change_activity_with_reconnect(
-                            state,
-                            details,
-                            large_image,
-                            large_text,
-                            small_image,
-                            small_text,
-                            git_url,
-                        )
+                        .change_activity_with_reconnect(activity_fields, git_url)
                         .await; // Ignore errors in background task
                 }
             }

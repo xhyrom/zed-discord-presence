@@ -28,6 +28,7 @@ use discord_rich_presence::{
 };
 use tracing::{debug, error, info, instrument, warn};
 
+use crate::activity::ActivityFields;
 use crate::{error::Result, util};
 
 /// Maximum number of connection retries
@@ -177,19 +178,13 @@ impl Discord {
         Ok(())
     }
 
-    #[instrument(skip(self), fields(
-        state = state.as_deref().unwrap_or("None"),
-        details = details.as_deref().unwrap_or("None")
+    #[instrument(skip(self, activity_fields), fields(
+            state = activity_fields.state.as_deref().unwrap_or("None"),
+            details = activity_fields.details.as_deref().unwrap_or("None")
     ))]
-    #[allow(clippy::too_many_arguments)]
     pub async fn change_activity(
         &self,
-        state: Option<String>,
-        details: Option<String>,
-        large_image: Option<String>,
-        large_text: Option<String>,
-        small_image: Option<String>,
-        small_text: Option<String>,
+        activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
         let mut client = self.get_client().await?;
@@ -207,14 +202,35 @@ impl Discord {
                     .unwrap_or_default(),
             );
 
-        let activity = util::set_optional_field(activity, state.as_deref(), Activity::state);
-        let activity = util::set_optional_field(activity, details.as_deref(), Activity::details);
+        let activity =
+            util::set_optional_field(activity, activity_fields.state.as_deref(), Activity::state);
+        let activity = util::set_optional_field(
+            activity,
+            activity_fields.details.as_deref(),
+            Activity::details,
+        );
 
         let assets = Assets::new();
-        let assets = util::set_optional_field(assets, large_image.as_deref(), Assets::large_image);
-        let assets = util::set_optional_field(assets, large_text.as_deref(), Assets::large_text);
-        let assets = util::set_optional_field(assets, small_image.as_deref(), Assets::small_image);
-        let assets = util::set_optional_field(assets, small_text.as_deref(), Assets::small_text);
+        let assets = util::set_optional_field(
+            assets,
+            activity_fields.large_image.as_deref(),
+            Assets::large_image,
+        );
+        let assets = util::set_optional_field(
+            assets,
+            activity_fields.large_text.as_deref(),
+            Assets::large_text,
+        );
+        let assets = util::set_optional_field(
+            assets,
+            activity_fields.small_image.as_deref(),
+            Assets::small_image,
+        );
+        let assets = util::set_optional_field(
+            assets,
+            activity_fields.small_text.as_deref(),
+            Assets::small_text,
+        );
 
         let activity = activity.assets(assets);
 
@@ -232,15 +248,9 @@ impl Discord {
     /// Changes activity with automatic reconnection on failure.
     /// If not connected, attempts to reconnect first.
     /// If activity update fails, marks connection as disconnected for future reconnection.
-    #[allow(clippy::too_many_arguments)]
     pub async fn change_activity_with_reconnect(
         &self,
-        state: Option<String>,
-        details: Option<String>,
-        large_image: Option<String>,
-        large_text: Option<String>,
-        small_image: Option<String>,
-        small_text: Option<String>,
+        activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
         // If not connected, try to reconnect first
@@ -253,18 +263,7 @@ impl Discord {
         }
 
         // Try to update activity
-        match self
-            .change_activity(
-                state.clone(),
-                details.clone(),
-                large_image.clone(),
-                large_text.clone(),
-                small_image.clone(),
-                small_text.clone(),
-                git_remote_url.clone(),
-            )
-            .await
-        {
+        match self.change_activity(activity_fields, git_remote_url).await {
             Ok(()) => Ok(()),
             Err(e) => {
                 // Connection may have dropped, mark as disconnected
