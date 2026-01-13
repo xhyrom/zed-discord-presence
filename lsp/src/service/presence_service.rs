@@ -77,11 +77,13 @@ impl PresenceService {
     ) -> Result<crate::activity::ActivityFields> {
         let config = self.state.config.lock().await;
         let workspace = self.state.workspace.lock().await;
+        let git_branch = self.state.git_branch.lock().await.clone();
 
         Ok(ActivityManager::build_activity_fields(
             doc,
             &config,
             workspace.name(),
+            git_branch,
         ))
     }
 
@@ -131,6 +133,7 @@ impl PresenceService {
                 Arc::clone(&self.state.discord),
                 Arc::clone(&self.state.config),
                 Arc::clone(&self.state.git_remote_url),
+                Arc::clone(&self.state.git_branch),
                 Arc::clone(&self.state.last_document),
                 workspace_name,
             )

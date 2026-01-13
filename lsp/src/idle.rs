@@ -46,6 +46,7 @@ impl IdleManager {
         discord: Arc<Mutex<Discord>>,
         config: Arc<Mutex<Configuration>>,
         git_remote_url: Arc<Mutex<Option<String>>>,
+        git_branch: Arc<Mutex<Option<String>>>,
         last_document: Arc<Mutex<Option<Document>>>,
         workspace: String,
     ) {
@@ -77,8 +78,13 @@ impl IdleManager {
                     let doc = last_document.lock().await;
                     let doc = doc.as_ref();
 
-                    let activity_fields =
-                        ActivityManager::build_idle_activity_fields(doc, &config_guard, &workspace);
+                    let branch = git_branch.lock().await.clone();
+                    let activity_fields = ActivityManager::build_idle_activity_fields(
+                        doc,
+                        &config_guard,
+                        &workspace,
+                        branch,
+                    );
 
                     let git_url = if config_guard.git_integration {
                         let git_guard = git_remote_url.lock().await;

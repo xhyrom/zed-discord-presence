@@ -147,6 +147,15 @@ impl LanguageServer for Backend {
             }
 
             *git_remote_url = remote_url;
+
+            // Set git branch
+            let mut git_branch = self.app_state.git_branch.lock().await;
+            *git_branch = git::get_current_branch(clean_path);
+            if let Some(ref branch) = *git_branch {
+                info!("Git branch: {}", branch);
+            } else {
+                debug!("No git branch found at path: {}", clean_path);
+            }
         }
 
         // Update config
