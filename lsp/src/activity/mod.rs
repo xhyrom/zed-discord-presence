@@ -43,15 +43,7 @@ impl ActivityManager {
             &config.activity
         };
 
-        ActivityFields::new(
-            activity.state.as_ref(),
-            activity.details.as_ref(),
-            activity.large_image.as_ref(),
-            activity.large_text.as_ref(),
-            activity.small_image.as_ref(),
-            activity.small_text.as_ref(),
-        )
-        .resolve_placeholders(&placeholders)
+        ActivityFields::from(activity).resolve_placeholders(&placeholders)
     }
 
     pub fn build_idle_activity_fields(
@@ -62,14 +54,6 @@ impl ActivityManager {
     ) -> ActivityFields {
         let placeholders = Placeholders::new(doc, config, workspace, git_branch);
 
-        ActivityFields::new(
-            config.idle.state.as_ref(),
-            config.idle.details.as_ref(),
-            config.idle.large_image.as_ref(),
-            config.idle.large_text.as_ref(),
-            config.idle.small_image.as_ref(),
-            config.idle.small_text.as_ref(),
-        )
-        .resolve_placeholders(&placeholders)
+        ActivityFields::from(&config.idle.activity).resolve_placeholders(&placeholders)
     }
 }

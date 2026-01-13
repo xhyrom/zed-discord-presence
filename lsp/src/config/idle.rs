@@ -17,9 +17,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use crate::error::Result;
+use crate::{config::activity::Activity, error::Result};
 
-use super::update::{update_optional_string_field, UpdateFromJson};
+use super::update::UpdateFromJson;
 use serde_json::Value;
 use std::time::Duration;
 
@@ -36,12 +36,7 @@ pub enum IdleAction {
 pub struct Idle {
     pub timeout: Duration,
     pub action: IdleAction,
-    pub state: Option<String>,
-    pub details: Option<String>,
-    pub large_image: Option<String>,
-    pub large_text: Option<String>,
-    pub small_image: Option<String>,
-    pub small_text: Option<String>,
+    pub activity: Activity,
 }
 
 impl Default for Idle {
@@ -49,12 +44,14 @@ impl Default for Idle {
         Self {
             timeout: Duration::from_secs(DEFAULT_IDLE_TIMEOUT),
             action: IdleAction::default(),
-            state: Some("Idling".to_string()),
-            details: Some("In Zed".to_string()),
-            large_image: Some("{base_icons_url}/zed.png".to_string()),
-            large_text: Some("Zed".to_string()),
-            small_image: Some("{base_icons_url}/idle.png".to_string()),
-            small_text: Some("Idle".to_string()),
+            activity: Activity {
+                state: Some("Idling".to_string()),
+                details: Some("In Zed".to_string()),
+                large_image: Some("{base_icons_url}/zed.png".to_string()),
+                large_text: Some("Zed".to_string()),
+                small_image: Some("{base_icons_url}/idle.png".to_string()),
+                small_text: Some("Idle".to_string()),
+            },
         }
     }
 }
@@ -73,12 +70,11 @@ impl UpdateFromJson for Idle {
             };
         }
 
-        update_optional_string_field!(self, json, state, "state");
-        update_optional_string_field!(self, json, details, "details");
-        update_optional_string_field!(self, json, large_image, "large_image");
-        update_optional_string_field!(self, json, large_text, "large_text");
-        update_optional_string_field!(self, json, small_image, "small_image");
-        update_optional_string_field!(self, json, small_text, "small_text");
+        if let Some(activity) = json.get("activity") {
+            self.activity.update_from_json(activity)?;
+        } else {
+            self.activity.update_from_json(json)?;
+        }
 
         Ok(())
     }
@@ -109,7 +105,7 @@ mod tests {
 
         assert_eq!(idle.timeout, Duration::from_secs(600));
         assert_eq!(idle.action, IdleAction::ClearActivity);
-        assert_eq!(idle.state, Some("Custom Idle State".to_string()));
-        assert_eq!(idle.details, None);
+        assert_eq!(idle.activity.state, Some("Custom Idle State".to_string()));
+        assert_eq!(idle.activity.details, None);
     }
 }
