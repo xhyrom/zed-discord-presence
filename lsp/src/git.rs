@@ -97,3 +97,33 @@ pub fn get_repository_and_remote(path: &str) -> Option<String> {
         None => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_current_branch_non_git_directory() {
+        // /tmp is typically not a git repository
+        let branch = get_current_branch("/tmp");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn test_get_current_branch_invalid_path() {
+        let branch = get_current_branch("/this/path/does/not/exist");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn test_get_current_branch_current_repo() {
+        // Test on the current repository - should return a branch name
+        // This test assumes we're running from within a git repository
+        let branch = get_current_branch(".");
+        // If we're in a git repo, we should get Some branch
+        // The branch name should be non-empty if present
+        if let Some(ref b) = branch {
+            assert!(!b.is_empty());
+        }
+    }
+}

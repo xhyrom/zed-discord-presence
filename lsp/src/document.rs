@@ -155,4 +155,27 @@ mod tests {
 
         assert_eq!(doc.get_filename().unwrap(), "test file.rs");
     }
+
+    #[test]
+    fn test_format_file_size_bytes() {
+        assert_eq!(format_file_size(0), "0 bytes");
+        assert_eq!(format_file_size(1), "1 bytes");
+        assert_eq!(format_file_size(512), "512 bytes");
+        assert_eq!(format_file_size(1023), "1023 bytes");
+    }
+
+    #[test]
+    fn test_format_file_size_kilobytes() {
+        assert_eq!(format_file_size(1024), "1.0 KB");
+        assert_eq!(format_file_size(1536), "1.5 KB");
+        assert_eq!(format_file_size(10240), "10.0 KB");
+        assert_eq!(format_file_size(1048575), "1024.0 KB"); // Just under 1 MB
+    }
+
+    #[test]
+    fn test_format_file_size_megabytes() {
+        assert_eq!(format_file_size(1048576), "1.0 MB"); // Exactly 1 MB
+        assert_eq!(format_file_size(1572864), "1.5 MB");
+        assert_eq!(format_file_size(10485760), "10.0 MB");
+    }
 }
