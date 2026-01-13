@@ -271,3 +271,62 @@ impl Discord {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_discord_new_defaults() {
+        let discord = Discord::new();
+        assert!(!discord.is_connected());
+        assert!(discord.client.is_none());
+    }
+
+    #[test]
+    fn test_is_connected_default_false() {
+        let discord = Discord::new();
+        assert!(!discord.is_connected());
+    }
+
+    #[test]
+    fn test_connected_state_can_be_changed() {
+        let discord = Discord::new();
+        assert!(!discord.is_connected());
+
+        // Manually set connected to true
+        discord.connected.store(true, Ordering::SeqCst);
+        assert!(discord.is_connected());
+
+        // Set back to false
+        discord.connected.store(false, Ordering::SeqCst);
+        assert!(!discord.is_connected());
+    }
+
+    #[test]
+    fn test_retry_constants() {
+        // Verify retry constants are reasonable
+        assert_eq!(MAX_RETRIES, 5);
+        assert_eq!(INITIAL_DELAY_MS, 500);
+        assert_eq!(MAX_DELAY_MS, 10_000);
+
+        // Verify exponential backoff calculation
+        let mut delay = Duration::from_millis(INITIAL_DELAY_MS);
+        let delays: Vec<u64> = (0..5)
+            .map(|_| {
+                let current = delay.as_millis() as u64;
+                delay = (delay * 2).min(Duration::from_millis(MAX_DELAY_MS));
+                current
+            })
+            .collect();
+
+        assert_eq!(delays, vec![500, 1000, 2000, 4000, 8000]);
+    }
+
+    #[test]
+    fn test_start_timestamp_is_set() {
+        let discord = Discord::new();
+        // Timestamp should be non-zero (set to current time)
+        assert!(discord.start_timestamp.as_millis() > 0);
+    }
+}
