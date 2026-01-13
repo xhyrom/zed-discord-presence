@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
+use crate::config::activity::Activity;
 use crate::util::Placeholders;
 
 #[derive(Debug, Clone)]
@@ -29,25 +30,20 @@ pub struct ActivityFields {
     pub small_text: Option<String>,
 }
 
-impl ActivityFields {
-    pub fn new(
-        state: Option<&String>,
-        details: Option<&String>,
-        large_image: Option<&String>,
-        large_text: Option<&String>,
-        small_image: Option<&String>,
-        small_text: Option<&String>,
-    ) -> Self {
+impl From<&Activity> for ActivityFields {
+    fn from(config: &Activity) -> Self {
         Self {
-            state: state.cloned(),
-            details: details.cloned(),
-            large_image: large_image.cloned(),
-            large_text: large_text.cloned(),
-            small_image: small_image.cloned(),
-            small_text: small_text.cloned(),
+            state: config.state.clone(),
+            details: config.details.clone(),
+            large_image: config.large_image.clone(),
+            large_text: config.large_text.clone(),
+            small_image: config.small_image.clone(),
+            small_text: config.small_text.clone(),
         }
     }
+}
 
+impl ActivityFields {
     pub fn resolve_placeholders(self, placeholders: &Placeholders) -> Self {
         Self {
             state: self.state.map(|s| placeholders.replace(&s)),
@@ -57,27 +53,6 @@ impl ActivityFields {
             small_image: self.small_image.map(|img| placeholders.replace(&img)),
             small_text: self.small_text.map(|text| placeholders.replace(&text)),
         }
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn into_tuple(
-        self,
-    ) -> (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
-        (
-            self.state,
-            self.details,
-            self.large_image,
-            self.large_text,
-            self.small_image,
-            self.small_text,
-        )
     }
 }
 
@@ -90,7 +65,15 @@ mod tests {
         let state = Some("Working on {filename}".to_string());
         let details = Some("In {workspace}".to_string());
 
-        let fields = ActivityFields::new(state.as_ref(), details.as_ref(), None, None, None, None);
+        let activity = Activity {
+            state: state.clone(),
+            details: details.clone(),
+            large_image: None,
+            large_text: None,
+            small_image: None,
+            small_text: None,
+        };
+        let fields = ActivityFields::from(&activity);
 
         assert_eq!(fields.state, Some("Working on {filename}".to_string()));
         assert_eq!(fields.details, Some("In {workspace}".to_string()));

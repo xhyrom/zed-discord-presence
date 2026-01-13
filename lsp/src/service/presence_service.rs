@@ -104,19 +104,9 @@ impl PresenceService {
         git_url: Option<String>,
     ) -> Result<()> {
         let discord = self.state.discord.lock().await;
-        let (state, details, large_image, large_text, small_image, small_text) =
-            activity_fields.into_tuple();
 
         discord
-            .change_activity_with_reconnect(
-                state,
-                details,
-                large_image,
-                large_text,
-                small_image,
-                small_text,
-                git_url,
-            )
+            .change_activity_with_reconnect(activity_fields, git_url)
             .await?;
 
         Ok(())
