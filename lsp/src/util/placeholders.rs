@@ -19,9 +19,6 @@
 
 use crate::{config::Configuration, languages::get_language, Document};
 
-/// Default line number to display when line information is not available
-const DEFAULT_LINE_NUMBER: &str = "0";
-
 macro_rules! replace_with_capitalization {
     ($text:expr, $($placeholder:expr => $value:expr),*) => {{
         let mut result = $text.to_string();
@@ -47,10 +44,17 @@ pub struct Placeholders<'a> {
     directory_name: Option<String>,
     full_directory_name: Option<String>,
     line_number: Option<u32>,
+    git_branch: Option<String>,
+    file_size: Option<String>,
 }
 
 impl<'a> Placeholders<'a> {
-    pub fn new(doc: Option<&'a Document>, config: &'a Configuration, workspace: &'a str) -> Self {
+    pub fn new(
+        doc: Option<&'a Document>,
+        config: &'a Configuration,
+        workspace: &'a str,
+        git_branch: Option<String>,
+    ) -> Self {
         let (
             filename,
             language,
@@ -59,6 +63,7 @@ impl<'a> Placeholders<'a> {
             directory_name,
             full_directory_name,
             line_number,
+            file_size,
         ) = if let Some(doc) = doc {
             (
                 Some(doc.get_filename().unwrap_or_default()),
@@ -68,9 +73,10 @@ impl<'a> Placeholders<'a> {
                 Some(doc.get_directory_name().unwrap_or_default()),
                 Some(doc.get_full_directory_name().unwrap_or_default()),
                 doc.get_line_number(),
+                Some(doc.get_formatted_file_size()),
             )
         } else {
-            (None, None, None, None, None, None, None)
+            (None, None, None, None, None, None, None, None)
         };
 
         Self {
@@ -83,6 +89,8 @@ impl<'a> Placeholders<'a> {
             directory_name,
             full_directory_name,
             line_number,
+            git_branch,
+            file_size,
         }
     }
 
@@ -99,13 +107,15 @@ impl<'a> Placeholders<'a> {
             .full_directory_name
             .as_deref()
             .unwrap_or("full_directory_name");
-        
-        // Convert 0-indexed line number to 1-indexed for display
+
         let line_number_str = self
             .line_number
-            .map_or_else(|| DEFAULT_LINE_NUMBER.to_string(), |n| (n + 1).to_string());
+            .map_or_else(|| 0.to_string(), |n| (n + 1).to_string());
 
-        let mut result = replace_with_capitalization!(
+        let git_branch = self.git_branch.as_deref().unwrap_or("git_branch");
+        let file_size = self.file_size.as_deref().unwrap_or("file_size");
+
+        replace_with_capitalization!(
             text,
             "filename" => filename,
             "workspace" => self.workspace,
@@ -114,13 +124,11 @@ impl<'a> Placeholders<'a> {
             "relative_file_path" => relative_file_path,
             "folder_and_file" => folder_and_file,
             "directory_name" => directory_name,
-            "full_directory_name" => full_directory_name
-        );
-        
-        // Replace line_number placeholder (no capitalization variants needed for numbers)
-        result = result.replace("{line_number}", &line_number_str);
-        
-        result
+            "full_directory_name" => full_directory_name,
+            "line_number" => &line_number_str,
+            "git_branch" => git_branch,
+            "file_size" => file_size
+        )
     }
 }
 
@@ -140,6 +148,8 @@ mod tests {
             directory_name: Some("src".to_string()),
             full_directory_name: Some("my-project/src".to_string()),
             line_number: Some(41), // 0-indexed, so will display as 42
+            git_branch: Some("main".to_string()),
+            file_size: Some("1.2 KB".to_string()),
         };
 
         let result = placeholders.replace("Working on {filename} in {workspace}");
@@ -147,8 +157,14 @@ mod tests {
 
         let result = placeholders.replace("{language:u} file");
         assert_eq!(result, "Rust file");
-        
+
         let result = placeholders.replace("Line {line_number}");
         assert_eq!(result, "Line 42");
+
+        let result = placeholders.replace("On branch {git_branch}");
+        assert_eq!(result, "On branch main");
+
+        let result = placeholders.replace("Size: {file_size}");
+        assert_eq!(result, "Size: 1.2 KB");
     }
 }

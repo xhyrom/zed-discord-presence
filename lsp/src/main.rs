@@ -31,7 +31,7 @@ use tower_lsp::lsp_types::{
     ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceServerCapabilities,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 mod activity;
 mod config;
@@ -151,6 +151,15 @@ impl LanguageServer for Backend {
             }
 
             *git_remote_url = remote_url;
+
+            // Set git branch
+            let mut git_branch = self.app_state.git_branch.lock().await;
+            *git_branch = git::get_current_branch(clean_path);
+            if let Some(ref branch) = *git_branch {
+                info!("Git branch: {}", branch);
+            } else {
+                debug!("No git branch found at path: {}", clean_path);
+            }
         }
 
         // Update config
@@ -174,17 +183,25 @@ impl LanguageServer for Backend {
         }
 
         // Initialize Discord
+        // non-blocking, will retry on first activity update
         {
             let config = self.app_state.config.lock().await;
-            if let Err(e) = self
+            match self
                 .presence_service
                 .initialize_discord(&config.application_id)
                 .await
             {
-                error!("Failed to initialize Discord: {}", e);
-                return Err(tower_lsp::jsonrpc::Error::internal_error());
+                Ok(()) => {
+                    info!("Discord client initialized and connected");
+                }
+                Err(e) => {
+                    // Don't fail initialization - connection will be retried on activity update
+                    warn!(
+                        "Discord connection failed during init, will retry on activity: {}",
+                        e
+                    );
+                }
             }
-            info!("Discord client initialized and connected");
         }
 
         Ok(InitializeResult {

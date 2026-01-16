@@ -61,7 +61,7 @@ impl PresenceService {
     pub async fn initialize_discord(&self, application_id: &str) -> Result<()> {
         let mut discord = self.state.discord.lock().await;
         discord.create_client(application_id)?;
-        discord.connect().await?;
+        discord.connect_with_retry().await?;
         Ok(())
     }
 
@@ -77,11 +77,13 @@ impl PresenceService {
     ) -> Result<crate::activity::ActivityFields> {
         let config = self.state.config.lock().await;
         let workspace = self.state.workspace.lock().await;
+        let git_branch = self.state.git_branch.lock().await.clone();
 
         Ok(ActivityManager::build_activity_fields(
             doc,
             &config,
             workspace.name(),
+            git_branch,
         ))
     }
 
@@ -102,19 +104,9 @@ impl PresenceService {
         git_url: Option<String>,
     ) -> Result<()> {
         let discord = self.state.discord.lock().await;
-        let (state, details, large_image, large_text, small_image, small_text) =
-            activity_fields.into_tuple();
 
         discord
-            .change_activity(
-                state,
-                details,
-                large_image,
-                large_text,
-                small_image,
-                small_text,
-                git_url,
-            )
+            .change_activity_with_reconnect(activity_fields, git_url)
             .await?;
 
         Ok(())
@@ -125,12 +117,12 @@ impl PresenceService {
             let workspace = self.state.workspace.lock().await;
             workspace.name().to_string()
         };
-
         self.idle_manager
             .reset_timeout(
                 Arc::clone(&self.state.discord),
                 Arc::clone(&self.state.config),
                 Arc::clone(&self.state.git_remote_url),
+                Arc::clone(&self.state.git_branch),
                 Arc::clone(&self.state.last_document),
                 workspace_name,
             )

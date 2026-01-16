@@ -32,8 +32,9 @@ impl ActivityManager {
         doc: Option<&Document>,
         config: &Configuration,
         workspace: &str,
+        git_branch: Option<String>,
     ) -> ActivityFields {
-        let placeholders = Placeholders::new(doc, config, workspace);
+        let placeholders = Placeholders::new(doc, config, workspace, git_branch);
 
         let activity = if let Some(doc) = doc {
             let language = get_language(doc).to_lowercase();
@@ -42,32 +43,17 @@ impl ActivityManager {
             &config.activity
         };
 
-        ActivityFields::new(
-            activity.state.as_ref(),
-            activity.details.as_ref(),
-            activity.large_image.as_ref(),
-            activity.large_text.as_ref(),
-            activity.small_image.as_ref(),
-            activity.small_text.as_ref(),
-        )
-        .resolve_placeholders(&placeholders)
+        ActivityFields::from(activity).resolve_placeholders(&placeholders)
     }
 
     pub fn build_idle_activity_fields(
         doc: Option<&Document>,
         config: &Configuration,
         workspace: &str,
+        git_branch: Option<String>,
     ) -> ActivityFields {
-        let placeholders = Placeholders::new(doc, config, workspace);
+        let placeholders = Placeholders::new(doc, config, workspace, git_branch);
 
-        ActivityFields::new(
-            config.idle.state.as_ref(),
-            config.idle.details.as_ref(),
-            config.idle.large_image.as_ref(),
-            config.idle.large_text.as_ref(),
-            config.idle.small_image.as_ref(),
-            config.idle.small_text.as_ref(),
-        )
-        .resolve_placeholders(&placeholders)
+        ActivityFields::from(&config.idle.activity).resolve_placeholders(&placeholders)
     }
 }

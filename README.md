@@ -32,11 +32,14 @@ If you're using Zed on Windows with WSL, this extension runs within WSL and ther
 1. On Windows, download [npiperelay](https://github.com/jstarks/npiperelay/releases), extract the `.zip`, and place `npiperelay.exe` in a directory such as `C:/npiperelay`.
 2. On WSL, install socat: `yay -S socat` for Arch, `sudo apt-get install socat` for Ubuntu/Debian.
 3. Run `echo $XDG_RUNTIME_DIR` and confirm it returns a path (usually `/run/user/1000`). This is where the Discord IPC socket will be created. If it's empty, enable systemd in WSL by adding the following to `/etc/wsl.conf` and restarting WSL:
+
 ```ini
 [boot]
 systemd=true
 ```
+
 4. Create a bridge script, such as `~/scripts/discord-ipc-bridge.sh`:
+
 ```sh
 #!/bin/bash
 SOCKET_PATH="${XDG_RUNTIME_DIR}/discord-ipc-0"
@@ -47,11 +50,13 @@ rm -f "$SOCKET_PATH"
 socat UNIX-LISTEN:"$SOCKET_PATH",fork \
   EXEC:"/mnt/c/npiperelay/npiperelay.exe -ep -s //./pipe/discord-ipc-0",nofork
 ```
+
 5. Make the script executable: `chmod +x ~/scripts/discord-ipc-bridge.sh`
-6. Run the script in the background: `~/scripts/discord-ipc-bridge.sh &`  
+6. Run the script in the background: `~/scripts/discord-ipc-bridge.sh &`
 7. Open Zed. The presence should now display.
 
 To start the bridge automatically, add this to your `.bashrc` or `.zshrc`:
+
 ```sh
 if ! pgrep -f "discord-ipc-bridge" > /dev/null; then
   ~/scripts/discord-ipc-bridge.sh &
@@ -59,9 +64,11 @@ fi
 ```
 
 If the presence stops displaying, restart the bridge:
+
 ```sh
 pkill -f "discord-ipc-bridge" && ~/scripts/discord-ipc-bridge.sh &
 ```
+
 </details>
 
 ## How to configure?
@@ -279,6 +286,8 @@ You can use the following placeholders in your configuration:
 - `{directory_name}` - Name of parent directory (e.g., "src")
 - `{full_directory_name}` - Full path of parent directory (e.g., "/home/user/project/src")
 - `{line_number}` - Current line number (e.g., "42")
+- `{git_branch}` - Current git branch name (e.g., "main")
+- `{file_size}` - Current file size (e.g., "1.2 KB")
 
 Modifiers can be applied to any placeholder except `{line_number}`:
 

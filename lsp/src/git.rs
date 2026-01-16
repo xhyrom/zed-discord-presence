@@ -73,9 +73,57 @@ fn transform_url(url: String) -> String {
     format!("https://{url}")
 }
 
+/// Gets the current branch name from a repository path.
+/// Returns the branch name if on a branch, or a short commit hash if in detached HEAD state.
+/// Returns None if the path is not a git repository or an error occurs.
+pub fn get_current_branch(path: &str) -> Option<String> {
+    let repo = get_repository(path)?;
+    let head = repo.head().ok()?;
+
+    if head.is_branch() {
+        head.shorthand().map(str::to_string)
+    } else {
+        // Detached HEAD - return short commit hash
+        head.target().map(|oid| {
+            let hex = oid.to_string();
+            hex[..7.min(hex.len())].to_string()
+        })
+    }
+}
+
 pub fn get_repository_and_remote(path: &str) -> Option<String> {
     match get_repository(path) {
         Some(repository) => get_main_remote_url(&repository),
         None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_current_branch_non_git_directory() {
+        // /tmp is typically not a git repository
+        let branch = get_current_branch("/tmp");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn test_get_current_branch_invalid_path() {
+        let branch = get_current_branch("/this/path/does/not/exist");
+        assert!(branch.is_none());
+    }
+
+    #[test]
+    fn test_get_current_branch_current_repo() {
+        // Test on the current repository - should return a branch name
+        // This test assumes we're running from within a git repository
+        let branch = get_current_branch(".");
+        // If we're in a git repo, we should get Some branch
+        // The branch name should be non-empty if present
+        if let Some(ref b) = branch {
+            assert!(!b.is_empty());
+        }
     }
 }

@@ -10,7 +10,7 @@ path = "src/discord_presence.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-zed_extension_api = "0.0.6"
+zed_extension_api = "0.7.0"
 
 [workspace]
 members = ["lsp"]
