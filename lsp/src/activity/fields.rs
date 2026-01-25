@@ -20,7 +20,7 @@
 use crate::config::activity::Activity;
 use crate::util::Placeholders;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActivityFields {
     pub state: Option<String>,
     pub details: Option<String>,
