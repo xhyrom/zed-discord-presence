@@ -27,8 +27,9 @@ use service::{AppState, PresenceService};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    InitializeParams, InitializeResult, InitializedParams, MessageType, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceServerCapabilities,
+    DocumentHighlight, DocumentHighlightParams, InitializeParams, InitializeResult,
+    InitializedParams, MessageType, OneOf, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceServerCapabilities,
 };
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use tracing::{debug, error, info, instrument, warn};
@@ -213,6 +214,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::INCREMENTAL,
                 )),
+                document_highlight_provider: Some(OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     file_operations: None,
                     workspace_folders: None,
@@ -255,16 +257,13 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
-        
-        // Extract line number from the last content change if available.
-        // We use the last change because it represents the most recent cursor position
-        // after all edits in this batch have been applied.
+
         let line_number = params
             .content_changes
             .last()
             .and_then(|change| change.range.as_ref())
             .map(|range| range.start.line);
-        
+
         self.on_change(&params.text_document.uri, line_number).await;
     }
 
@@ -272,6 +271,22 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         debug!("Document saved: {}", params.text_document.uri);
         self.on_change(&params.text_document.uri, None).await;
+    }
+
+    #[instrument(skip(self, params))]
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        debug!(
+            "Document highlight requested: {}",
+            params.text_document_position_params.text_document.uri
+        );
+        let pos = params.text_document_position_params;
+        self.on_change(&pos.text_document.uri, Some(pos.position.line))
+            .await;
+
+        Ok(None)
     }
 }
 

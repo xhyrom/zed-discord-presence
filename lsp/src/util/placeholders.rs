@@ -110,7 +110,7 @@ impl<'a> Placeholders<'a> {
 
         let line_number_str = self
             .line_number
-            .map_or_else(|| 0.to_string(), |n| (n + 1).to_string());
+            .map_or_else(|| 1.to_string(), |n| (n + 1).to_string());
 
         let git_branch = self.git_branch.as_deref().unwrap_or("git_branch");
         let file_size = self.file_size.as_deref().unwrap_or("file_size");
