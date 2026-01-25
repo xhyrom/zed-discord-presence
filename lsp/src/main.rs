@@ -74,11 +74,7 @@ impl Backend {
             let workspace = self.app_state.workspace.lock().await;
             let workspace_path = Path::new(workspace.path().unwrap_or(""));
 
-            if let Some(line) = line_number {
-                Document::with_line_number(uri, workspace_path, line)
-            } else {
-                Document::new(uri, workspace_path)
-            }
+            Document::new(uri, workspace_path, line_number)
         };
 
         if let Err(e) = self.presence_service.update_presence(Some(doc)).await {
