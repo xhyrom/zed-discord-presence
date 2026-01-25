@@ -198,8 +198,6 @@ impl Discord {
             }
         }
 
-        self.last_activity = Some((activity_fields.clone(), git_remote_url.clone()));
-
         let mut client = self.get_client().await?;
         let timestamp: i64 = i64::try_from(self.start_timestamp.as_millis()).map_err(|e| {
             error!("Failed to convert timestamp: {}", e);
@@ -253,6 +251,10 @@ impl Discord {
             self.connected.store(false, Ordering::SeqCst);
             crate::error::PresenceError::Discord(format!("Failed to set activity: {e}"))
         })?;
+
+        drop(client);
+
+        self.last_activity = Some((activity_fields, git_remote_url));
 
         debug!("Discord activity updated successfully");
         Ok(())
