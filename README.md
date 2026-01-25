@@ -285,9 +285,12 @@ You can use the following placeholders in your configuration:
 - `{folder_and_file}` - Parent directory and file name (e.g., "src/main.rs")
 - `{directory_name}` - Name of parent directory (e.g., "src")
 - `{full_directory_name}` - Full path of parent directory (e.g., "/home/user/project/src")
+
 - `{line_number}` - Current line number (e.g., "42")
-  > [!WARNING]  
-  > The line number might not always be accurate or update instantly due to LSP limitations. Updates usually happen on file edits, saves, or specific cursor interactions.
+
+> [!WARNING]  
+> The line number might not always be accurate or update instantly due to LSP limitations. Updates usually happen on file edits, saves, or specific cursor interactions.
+
 - `{git_branch}` - Current git branch name (e.g., "main")
 - `{file_size}` - Current file size (e.g., "1.2 KB")
 
