@@ -37,7 +37,7 @@ impl Document {
         Self {
             path: path.to_owned(),
             workspace_root: workspace_root.to_owned(),
-            line_number: line_number,
+            line_number,
         }
     }
 
