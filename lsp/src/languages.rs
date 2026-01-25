@@ -78,7 +78,7 @@ mod tests {
         let url = Url::parse("file:///home/user/project/file.php").unwrap();
         let workspace_root = Path::new("/home/user/project");
 
-        let document = Document::new(&url, workspace_root);
+        let document = Document::new(&url, workspace_root, None);
         let lang = get_language(&document);
         assert_eq!(lang, "php");
     }

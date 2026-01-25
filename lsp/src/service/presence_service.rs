@@ -103,7 +103,7 @@ impl PresenceService {
         activity_fields: crate::activity::ActivityFields,
         git_url: Option<String>,
     ) -> Result<()> {
-        let discord = self.state.discord.lock().await;
+        let mut discord = self.state.discord.lock().await;
 
         discord
             .change_activity_with_reconnect(activity_fields, git_url)

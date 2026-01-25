@@ -43,6 +43,7 @@ pub struct Discord {
     client: Option<Mutex<DiscordIpcClient>>,
     start_timestamp: Duration,
     connected: Arc<AtomicBool>,
+    last_activity: Option<(ActivityFields, Option<String>)>,
 }
 
 impl Discord {
@@ -56,6 +57,7 @@ impl Discord {
             client: None,
             start_timestamp: since_epoch,
             connected: Arc::new(AtomicBool::new(false)),
+            last_activity: None,
         }
     }
 
@@ -163,8 +165,10 @@ impl Discord {
     }
 
     #[instrument(skip(self))]
-    pub async fn clear_activity(&self) -> Result<()> {
+    pub async fn clear_activity(&mut self) -> Result<()> {
         debug!("Clearing Discord activity");
+
+        self.last_activity = None;
 
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {
@@ -183,10 +187,17 @@ impl Discord {
             details = activity_fields.details.as_deref().unwrap_or("None")
     ))]
     pub async fn change_activity(
-        &self,
+        &mut self,
         activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
+        if let Some((last_fields, last_git)) = &self.last_activity {
+            if last_fields == &activity_fields && last_git == &git_remote_url {
+                debug!("Activity unchanged, skipping update");
+                return Ok(());
+            }
+        }
+
         let mut client = self.get_client().await?;
         let timestamp: i64 = i64::try_from(self.start_timestamp.as_millis()).map_err(|e| {
             error!("Failed to convert timestamp: {}", e);
@@ -241,6 +252,10 @@ impl Discord {
             crate::error::PresenceError::Discord(format!("Failed to set activity: {e}"))
         })?;
 
+        drop(client);
+
+        self.last_activity = Some((activity_fields, git_remote_url));
+
         debug!("Discord activity updated successfully");
         Ok(())
     }
@@ -249,13 +264,14 @@ impl Discord {
     /// If not connected, attempts to reconnect first.
     /// If activity update fails, marks connection as disconnected for future reconnection.
     pub async fn change_activity_with_reconnect(
-        &self,
+        &mut self,
         activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
         // If not connected, try to reconnect first
         if !self.is_connected() {
             warn!("Discord not connected, attempting reconnection...");
+            self.last_activity = None;
             if let Err(e) = self.reconnect().await {
                 debug!("Reconnection failed: {}", e);
                 return Err(e);
@@ -269,6 +285,7 @@ impl Discord {
                 // Connection may have dropped, mark as disconnected
                 warn!("Activity update failed, marking as disconnected: {}", e);
                 self.connected.store(false, Ordering::SeqCst);
+                self.last_activity = None;
                 Err(e)
             }
         }

@@ -26,17 +26,23 @@ use tower_lsp::lsp_types::Url;
 pub struct Document {
     path: PathBuf,
     workspace_root: PathBuf,
+    line_number: Option<u32>,
 }
 
 impl Document {
-    pub fn new(url: &Url, workspace_root: &Path) -> Self {
+    pub fn new(url: &Url, workspace_root: &Path, line_number: Option<u32>) -> Self {
         let url_path = url.path();
         let path = Path::new(url_path);
 
         Self {
             path: path.to_owned(),
             workspace_root: workspace_root.to_owned(),
+            line_number,
         }
+    }
+
+    pub fn get_line_number(&self) -> Option<u32> {
+        self.line_number
     }
 
     pub fn get_filename(&self) -> Result<String> {
@@ -137,7 +143,7 @@ mod tests {
     fn test_document_creation() {
         let url = Url::parse("file:///home/user/project/test.rs").unwrap();
         let workspace_root = Path::new("/home/user/project");
-        let doc = Document::new(&url, workspace_root);
+        let doc = Document::new(&url, workspace_root, None);
 
         assert_eq!(doc.get_filename().unwrap(), "test.rs");
         assert_eq!(doc.get_extension(), "rs");
@@ -151,7 +157,7 @@ mod tests {
     fn test_document_with_encoded_filename() {
         let url = Url::parse("file:///home/user/project/test%20file.rs").unwrap();
         let workspace_root = Path::new("/home/user/project");
-        let doc = Document::new(&url, workspace_root);
+        let doc = Document::new(&url, workspace_root, None);
 
         assert_eq!(doc.get_filename().unwrap(), "test file.rs");
     }

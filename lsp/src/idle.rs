@@ -68,7 +68,7 @@ impl IdleManager {
             time::sleep(timeout_duration).await;
 
             let config_guard = config.lock().await;
-            let discord_guard = discord.lock().await;
+            let mut discord_guard = discord.lock().await;
 
             match config_guard.idle.action {
                 IdleAction::ClearActivity => {
