@@ -43,6 +43,7 @@ pub struct Placeholders<'a> {
     folder_and_file: Option<String>,
     directory_name: Option<String>,
     full_directory_name: Option<String>,
+    line_number: Option<u32>,
     git_branch: Option<String>,
     file_size: Option<String>,
 }
@@ -61,6 +62,7 @@ impl<'a> Placeholders<'a> {
             folder_and_file,
             directory_name,
             full_directory_name,
+            line_number,
             file_size,
         ) = if let Some(doc) = doc {
             (
@@ -70,10 +72,11 @@ impl<'a> Placeholders<'a> {
                 Some(doc.get_folder_and_file().unwrap_or_default()),
                 Some(doc.get_directory_name().unwrap_or_default()),
                 Some(doc.get_full_directory_name().unwrap_or_default()),
+                doc.get_line_number(),
                 Some(doc.get_formatted_file_size()),
             )
         } else {
-            (None, None, None, None, None, None, None)
+            (None, None, None, None, None, None, None, None)
         };
 
         Self {
@@ -85,6 +88,7 @@ impl<'a> Placeholders<'a> {
             folder_and_file,
             directory_name,
             full_directory_name,
+            line_number,
             git_branch,
             file_size,
         }
@@ -103,6 +107,11 @@ impl<'a> Placeholders<'a> {
             .full_directory_name
             .as_deref()
             .unwrap_or("full_directory_name");
+
+        let line_number_str = self
+            .line_number
+            .map_or_else(|| 1.to_string(), |n| n.saturating_add(1).to_string());
+
         let git_branch = self.git_branch.as_deref().unwrap_or("git_branch");
         let file_size = self.file_size.as_deref().unwrap_or("file_size");
 
@@ -116,6 +125,7 @@ impl<'a> Placeholders<'a> {
             "folder_and_file" => folder_and_file,
             "directory_name" => directory_name,
             "full_directory_name" => full_directory_name,
+            "line_number" => &line_number_str,
             "git_branch" => git_branch,
             "file_size" => file_size
         )
@@ -137,6 +147,7 @@ mod tests {
             folder_and_file: Some("src/test.rs".to_string()),
             directory_name: Some("src".to_string()),
             full_directory_name: Some("my-project/src".to_string()),
+            line_number: Some(41), // 0-indexed, so will display as 42
             git_branch: Some("main".to_string()),
             file_size: Some("1.2 KB".to_string()),
         };
@@ -146,6 +157,9 @@ mod tests {
 
         let result = placeholders.replace("{language:u} file");
         assert_eq!(result, "Rust file");
+
+        let result = placeholders.replace("Line {line_number}");
+        assert_eq!(result, "Line 42");
 
         let result = placeholders.replace("On branch {git_branch}");
         assert_eq!(result, "On branch main");
