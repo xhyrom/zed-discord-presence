@@ -266,14 +266,7 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         debug!("Document saved: {}", params.text_document.uri);
-
-        let last_document = self.app_state.last_document.lock().await;
-
-        self.on_change(
-            &params.text_document.uri,
-            last_document.as_ref().and_then(|doc| doc.get_line_number()),
-        )
-        .await;
+        self.on_change(&params.text_document.uri, None).await;
     }
 
     #[instrument(skip(self, params))]
