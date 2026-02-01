@@ -51,6 +51,9 @@ impl DiscordPresenceExtension {
             }
         }
 
+        #[cfg(windows)]
+        let binary_path: String = "discord-presence-lsp.exe".to_string();
+        #[cfg(not(windows))]
         let binary_path: String = "discord-presence-lsp".to_string();
 
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
@@ -153,11 +156,21 @@ impl DiscordPresenceExtension {
                 }
             }
 
-            let _ = fs::remove_file("discord-presence-lsp");
+            #[cfg(windows)]
+            let symlink_name = "discord-presence-lsp.exe";
+            #[cfg(not(windows))]
+            let symlink_name = "discord-presence-lsp";
+
+            let _ = fs::remove_file(symlink_name);
         }
 
-        if !fs::metadata("discord-presence-lsp").is_ok_and(|stat| stat.is_file()) {
-            if let Err(e) = create_symlink(&binary_path, "discord-presence-lsp") {
+        #[cfg(windows)]
+        let symlink_name = "discord-presence-lsp.exe";
+        #[cfg(not(windows))]
+        let symlink_name = "discord-presence-lsp";
+
+        if !fs::metadata(symlink_name).is_ok_and(|stat| stat.is_file()) {
+            if let Err(e) = create_symlink(&binary_path, symlink_name) {
                 eprintln!("failed to create symlink: {e}");
             }
         }
