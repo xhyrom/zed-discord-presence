@@ -157,11 +157,9 @@ impl DiscordPresenceExtension {
             }
 
             #[cfg(windows)]
-            let symlink_name = "discord-presence-lsp.exe";
+            let _ = fs::remove_file("discord-presence-lsp.exe");
             #[cfg(not(windows))]
-            let symlink_name = "discord-presence-lsp";
-
-            let _ = fs::remove_file(symlink_name);
+            let _ = fs::remove_file("discord-presence-lsp");
         }
 
         #[cfg(windows)]
