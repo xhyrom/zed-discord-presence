@@ -20,6 +20,11 @@
 use std::fs;
 use zed_extension_api::{self as zed};
 
+#[cfg(windows)]
+const SYMLINK_NAME: &str = "discord-presence-lsp.exe";
+#[cfg(not(windows))]
+const SYMLINK_NAME: &str = "discord-presence-lsp";
+
 struct DiscordPresenceExtension {
     cached_binary_path: Option<String>,
 }
@@ -51,7 +56,7 @@ impl DiscordPresenceExtension {
             }
         }
 
-        let binary_path: String = "discord-presence-lsp".to_string();
+        let binary_path: String = SYMLINK_NAME.to_string();
 
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             return Err("failed to find fallback language server binary".to_string());
@@ -153,11 +158,11 @@ impl DiscordPresenceExtension {
                 }
             }
 
-            let _ = fs::remove_file("discord-presence-lsp");
+            let _ = fs::remove_file(SYMLINK_NAME);
         }
 
-        if !fs::metadata("discord-presence-lsp").is_ok_and(|stat| stat.is_file()) {
-            if let Err(e) = create_symlink(&binary_path, "discord-presence-lsp") {
+        if !fs::metadata(SYMLINK_NAME).is_ok_and(|stat| stat.is_file()) {
+            if let Err(e) = create_symlink(&binary_path, SYMLINK_NAME) {
                 eprintln!("failed to create symlink: {e}");
             }
         }
