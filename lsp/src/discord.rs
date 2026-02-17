@@ -148,6 +148,11 @@ impl Discord {
         debug!("Killing Discord IPC client");
         self.connected.store(false, Ordering::SeqCst);
 
+        if self.client.is_none() {
+            debug!("Discord client not initialized; skipping close");
+            return Ok(());
+        }
+
         let mut client = self.get_client().await?;
         client.close().map_err(|e| {
             crate::error::PresenceError::Discord(format!("Failed to close Discord connection: {e}"))
@@ -169,6 +174,16 @@ impl Discord {
         debug!("Clearing Discord activity");
 
         self.last_activity = None;
+
+        if self.client.is_none() {
+            debug!("Discord client not initialized; skipping activity clear");
+            return Ok(());
+        }
+
+        if !self.is_connected() {
+            debug!("Discord client not connected; skipping activity clear");
+            return Ok(());
+        }
 
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {

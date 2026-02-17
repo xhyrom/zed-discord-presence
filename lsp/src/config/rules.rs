@@ -79,8 +79,10 @@ mod tests {
 
     #[test]
     fn test_suitable() {
-        let mut rules = Rules::default();
-        rules.paths = vec!["/test/path".to_string()];
+        let mut rules = Rules {
+            paths: vec!["/test/path".to_string()],
+            ..Rules::default()
+        };
 
         // Test blacklist mode
         assert!(!rules.suitable("/test/path"));

@@ -54,10 +54,7 @@ struct Backend {
 }
 
 impl Backend {
-    fn new(client: Client) -> Self {
-        let app_state = Arc::new(AppState::new());
-        let presence_service = PresenceService::new(Arc::clone(&app_state));
-
+    fn new(client: Client, app_state: Arc<AppState>, presence_service: PresenceService) -> Self {
         info!("Backend initialized");
 
         Self {
@@ -104,6 +101,39 @@ impl Backend {
         }
 
         panic!("Failed to resolve workspace path from URI")
+    }
+}
+
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+
+        match signal(SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                tokio::select! {
+                    result = tokio::signal::ctrl_c() => {
+                        if let Err(e) = result {
+                            warn!("Failed while waiting for SIGINT: {}", e);
+                        }
+                    }
+                    _ = sigterm.recv() => {}
+                }
+            }
+            Err(e) => {
+                warn!("Failed to install SIGTERM handler: {}", e);
+                if let Err(err) = tokio::signal::ctrl_c().await {
+                    warn!("Failed while waiting for SIGINT fallback: {}", err);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            warn!("Failed while waiting for SIGINT: {}", e);
+        }
     }
 }
 
@@ -298,10 +328,37 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(Backend::new);
+    let app_state = Arc::new(AppState::new());
+    let presence_service = PresenceService::new(Arc::clone(&app_state));
+
+    let signal_presence_service = presence_service.clone();
+    tokio::spawn(async move {
+        wait_for_shutdown_signal().await;
+        info!("Shutdown signal received, performing cleanup");
+
+        if let Err(e) = signal_presence_service.shutdown().await {
+            error!("Failed to cleanup presence after signal: {}", e);
+        }
+
+        std::process::exit(0);
+    });
+
+    let app_state_for_backend = Arc::clone(&app_state);
+    let presence_service_for_backend = presence_service.clone();
+    let (service, socket) = LspService::new(move |client| {
+        Backend::new(
+            client,
+            Arc::clone(&app_state_for_backend),
+            presence_service_for_backend.clone(),
+        )
+    });
 
     info!("LSP service created, starting server");
     Server::new(stdin, stdout, socket).serve(service).await;
+
+    if let Err(e) = presence_service.shutdown().await {
+        error!("Failed to cleanup presence after server stop: {}", e);
+    }
 
     info!("Discord Presence LSP server stopped");
 }

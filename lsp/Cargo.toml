@@ -1,19 +1,30 @@
 [package]
 name = "discord-presence-lsp"
 version = "0.10.0"
-edition = "2021"
+edition = "2024"
 
 [lints]
 workspace = true
 
 [dependencies]
 discord-rich-presence = { git = "https://github.com/vionya/discord-rich-presence.git", rev = "2b4277d03a4f6bbe6338f9c5420fa082c25eaa3c" }
-tokio = { version = "1.37.0", features = ["rt-multi-thread", "io-std", "macros", "time"] }
+tokio = { version = "1.49.0", features = [
+    "rt-multi-thread",
+    "io-std",
+    "macros",
+    "time",
+    "signal",
+] }
 tower-lsp = "0.20.0"
 git2 = { version = "0.20.2", default-features = false }
-serde_json = { version = "1.0.122", features = ["std"] }
-regex = { version = "1.10.6", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
+serde_json = { version = "1.0.149", features = ["std"] }
+regex = { version = "1.10.6", default-features = false, features = [
+    "std",
+    "perf",
+    "unicode-case",
+    "unicode-perl",
+] }
 urlencoding = "2.1.3"
-tracing = "0.1.41"
+tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 tracing-appender = "0.2.3"

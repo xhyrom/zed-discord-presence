@@ -29,7 +29,7 @@ use crate::{
     document::Document,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IdleManager {
     handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
@@ -101,5 +101,13 @@ impl IdleManager {
         });
 
         *handle_guard = Some(handle);
+    }
+
+    pub async fn cancel_timeout(&self) {
+        let mut handle_guard = self.handle.lock().await;
+
+        if let Some(handle) = handle_guard.take() {
+            handle.abort();
+        }
     }
 }

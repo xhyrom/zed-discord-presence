@@ -21,12 +21,15 @@ use crate::{
     activity::ActivityManager, document::Document, error::Result, idle::IdleManager,
     service::AppState,
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tracing::{debug, warn};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PresenceService {
     state: Arc<AppState>,
     idle_manager: IdleManager,
+    is_shutting_down: Arc<AtomicBool>,
 }
 
 impl PresenceService {
@@ -34,10 +37,16 @@ impl PresenceService {
         Self {
             state,
             idle_manager: IdleManager::new(),
+            is_shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub async fn update_presence(&self, doc: Option<Document>) -> Result<()> {
+        if self.is_shutting_down.load(Ordering::SeqCst) {
+            debug!("Skipping presence update because shutdown is in progress");
+            return Ok(());
+        }
+
         // Store the last document for idle use
         {
             let mut last_doc = self.state.last_document.lock().await;
@@ -66,8 +75,23 @@ impl PresenceService {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        let discord = self.state.discord.lock().await;
-        discord.kill().await?;
+        if self.is_shutting_down.swap(true, Ordering::SeqCst) {
+            debug!("Shutdown already in progress or completed");
+            return Ok(());
+        }
+
+        self.idle_manager.cancel_timeout().await;
+
+        let mut discord = self.state.discord.lock().await;
+
+        if let Err(e) = discord.clear_activity().await {
+            warn!("Failed to clear activity during shutdown: {}", e);
+        }
+
+        if let Err(e) = discord.kill().await {
+            warn!("Failed to close Discord IPC during shutdown: {}", e);
+        }
+
         Ok(())
     }
 
@@ -113,6 +137,11 @@ impl PresenceService {
     }
 
     async fn reset_idle_timeout(&self) -> Result<()> {
+        if self.is_shutting_down.load(Ordering::SeqCst) {
+            debug!("Skipping idle timeout reset because shutdown is in progress");
+            return Ok(());
+        }
+
         let workspace_name = {
             let workspace = self.state.workspace.lock().await;
             workspace.name().to_string()
