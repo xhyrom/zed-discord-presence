@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::config::update::{update_optional_string_field, UpdateFromJson};
+use crate::config::update::{UpdateFromJson, update_optional_string_field};
 use crate::error::Result;
 
 #[derive(Debug, Clone)]

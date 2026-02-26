@@ -51,10 +51,9 @@ pub fn get_language(document: &Document) -> String {
         if let Ok(re) = RegexBuilder::new(pattern.unwrap())
             .case_insensitive(true)
             .build()
+            && (re.is_match(&filename) || re.is_match(&extension))
         {
-            if re.is_match(&filename) || re.is_match(&extension) {
-                return language.clone();
-            }
+            return language.clone();
         }
     }
 

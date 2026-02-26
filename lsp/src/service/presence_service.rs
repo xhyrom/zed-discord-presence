@@ -21,9 +21,13 @@ use crate::{
     activity::ActivityManager, document::Document, error::Result, idle::IdleManager,
     service::AppState,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use tokio::time::timeout;
 use tracing::{debug, warn};
+
+const SHUTDOWN_CLEAR_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct PresenceService {
@@ -62,12 +66,19 @@ impl PresenceService {
         let activity_fields = self.build_activity_fields(doc.as_ref()).await?;
         let git_url = self.get_git_url_if_enabled().await?;
 
+        if self.is_shutting_down.load(Ordering::SeqCst) {
+            debug!("Skipping presence update because shutdown started during processing");
+            return Ok(());
+        }
+
         self.set_discord_activity(activity_fields, git_url).await?;
 
         Ok(())
     }
 
     pub async fn initialize_discord(&self, application_id: &str) -> Result<()> {
+        self.is_shutting_down.store(false, Ordering::SeqCst);
+
         let mut discord = self.state.discord.lock().await;
         discord.create_client(application_id)?;
         discord.connect_with_retry().await?;
@@ -84,8 +95,22 @@ impl PresenceService {
 
         let mut discord = self.state.discord.lock().await;
 
-        if let Err(e) = discord.clear_activity().await {
-            warn!("Failed to clear activity during shutdown: {}", e);
+        match timeout(
+            SHUTDOWN_CLEAR_TIMEOUT,
+            discord.clear_activity_with_reconnect(),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                warn!("Failed to clear activity during shutdown: {}", e);
+            }
+            Err(_) => {
+                warn!(
+                    "Timed out while clearing activity during shutdown after {:?}",
+                    SHUTDOWN_CLEAR_TIMEOUT
+                );
+            }
         }
 
         if let Err(e) = discord.kill().await {
@@ -127,7 +152,17 @@ impl PresenceService {
         activity_fields: crate::activity::ActivityFields,
         git_url: Option<String>,
     ) -> Result<()> {
+        if self.is_shutting_down.load(Ordering::SeqCst) {
+            debug!("Skipping activity update because shutdown is in progress");
+            return Ok(());
+        }
+
         let mut discord = self.state.discord.lock().await;
+
+        if self.is_shutting_down.load(Ordering::SeqCst) {
+            debug!("Skipping activity update because shutdown started before Discord write");
+            return Ok(());
+        }
 
         discord
             .change_activity_with_reconnect(activity_fields, git_url)
@@ -154,9 +189,108 @@ impl PresenceService {
                 Arc::clone(&self.state.git_branch),
                 Arc::clone(&self.state.last_document),
                 workspace_name,
+                Arc::clone(&self.is_shutting_down),
             )
             .await;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::AppState;
+    use std::path::Path;
+    use std::sync::Arc;
+    use tower_lsp::lsp_types::Url;
+
+    fn test_document(path: &str) -> Document {
+        let url = Url::parse(path).unwrap();
+        let workspace_root = Path::new("/home/user/project");
+        Document::new(&url, workspace_root, None)
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_suppresses_updates() {
+        let app_state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&app_state));
+
+        // Initial state
+        assert!(!service.is_shutting_down.load(Ordering::SeqCst));
+
+        // Initiate shutdown
+        service.shutdown().await.unwrap();
+        assert!(service.is_shutting_down.load(Ordering::SeqCst));
+
+        // Try to update presence - should return Ok(()) immediately via the guard
+        let result = service.update_presence(None).await;
+        assert!(result.is_ok());
+
+        // Try to reset idle timeout - should return Ok(()) immediately via the guard
+        let result = service.reset_idle_timeout().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_double_shutdown_is_safe() {
+        let app_state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&app_state));
+
+        // First shutdown
+        service.shutdown().await.unwrap();
+
+        // Second shutdown should return Ok(()) via the swap guard
+        let result = service.shutdown().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_update_presence_when_shutting_down_does_not_replace_last_document() {
+        let app_state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&app_state));
+
+        let original_doc = test_document("file:///home/user/project/original.rs");
+        {
+            let mut last_doc = app_state.last_document.lock().await;
+            *last_doc = Some(original_doc);
+        }
+
+        service.is_shutting_down.store(true, Ordering::SeqCst);
+
+        let new_doc = test_document("file:///home/user/project/new.rs");
+        let result = service.update_presence(Some(new_doc)).await;
+        assert!(result.is_ok());
+
+        let last_doc = app_state.last_document.lock().await;
+        let filename = last_doc
+            .as_ref()
+            .expect("last document should remain set")
+            .get_filename()
+            .expect("filename should be available");
+        assert_eq!(filename, "original.rs");
+    }
+
+    #[tokio::test]
+    async fn test_update_presence_with_none_document_clears_last_document() {
+        let app_state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&app_state));
+
+        {
+            let mut discord = app_state.discord.lock().await;
+            discord.create_client("123456789012345678").unwrap();
+        }
+
+        {
+            let mut last_doc = app_state.last_document.lock().await;
+            *last_doc = Some(test_document("file:///home/user/project/file.rs"));
+        }
+
+        // This may fail if Discord is unavailable in test environment, but
+        // last_document should still be updated before IPC write.
+        let _ = service.update_presence(None).await;
+
+        let last_doc = app_state.last_document.lock().await;
+        assert!(last_doc.is_none());
     }
 }

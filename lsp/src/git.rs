@@ -57,10 +57,10 @@ fn transform_url(url: String) -> String {
         url = rest.to_string();
     }
 
-    if let Some((domain, path)) = url.split_once(':') {
-        if !path.starts_with("//") {
-            url = format!("{domain}/{path}");
-        }
+    if let Some((domain, path)) = url.split_once(':')
+        && !path.starts_with("//")
+    {
+        url = format!("{domain}/{path}");
     }
 
     if Path::new(&url)

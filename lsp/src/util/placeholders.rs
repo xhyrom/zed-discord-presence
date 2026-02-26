@@ -17,7 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use crate::{config::Configuration, languages::get_language, Document};
+use crate::{Document, config::Configuration, languages::get_language};
 
 macro_rules! replace_with_capitalization {
     ($text:expr, $($placeholder:expr => $value:expr),*) => {{

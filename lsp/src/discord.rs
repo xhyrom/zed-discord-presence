@@ -17,14 +17,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, MutexGuard};
 
 use discord_rich_presence::{
-    activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
+    activity::{Activity, Assets, Button, Timestamps},
 };
 use tracing::{debug, error, info, instrument, warn};
 
@@ -180,11 +180,6 @@ impl Discord {
             return Ok(());
         }
 
-        if !self.is_connected() {
-            debug!("Discord client not connected; skipping activity clear");
-            return Ok(());
-        }
-
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {
             error!("Failed to clear activity: {}", e);
@@ -197,6 +192,44 @@ impl Discord {
         Ok(())
     }
 
+    /// Clears activity with automatic reconnection on failure.
+    /// If not connected, attempts to reconnect first.
+    /// If clear fails, attempts one reconnect and one final clear attempt.
+    pub async fn clear_activity_with_reconnect(&mut self) -> Result<()> {
+        if self.client.is_none() {
+            debug!("Discord client not initialized; skipping activity clear");
+            self.last_activity = None;
+            return Ok(());
+        }
+
+        if !self.is_connected() {
+            warn!("Discord not connected, attempting reconnection before clearing activity...");
+            if let Err(e) = self.reconnect().await {
+                debug!("Reconnection before clear failed: {}", e);
+                self.last_activity = None;
+                return Err(e);
+            }
+        }
+
+        match self.clear_activity().await {
+            Ok(()) => Ok(()),
+            Err(first_err) => {
+                warn!(
+                    "Activity clear failed, attempting reconnect and retry once: {}",
+                    first_err
+                );
+                self.connected.store(false, Ordering::SeqCst);
+
+                if let Err(reconnect_err) = self.reconnect().await {
+                    debug!("Reconnect after clear failure failed: {}", reconnect_err);
+                    return Err(first_err);
+                }
+
+                self.clear_activity().await
+            }
+        }
+    }
+
     #[instrument(skip(self, activity_fields), fields(
             state = activity_fields.state.as_deref().unwrap_or("None"),
             details = activity_fields.details.as_deref().unwrap_or("None")
@@ -206,12 +239,14 @@ impl Discord {
         activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
-        if let Some((last_fields, last_git)) = &self.last_activity {
-            if last_fields == &activity_fields && last_git == &git_remote_url {
-                debug!("Activity unchanged, skipping update");
-                return Ok(());
-            }
-        }
+        let unchanged = if let Some((last_fields, last_git)) = &self.last_activity
+            && last_fields == &activity_fields
+            && last_git == &git_remote_url
+        {
+            true
+        } else {
+            false
+        };
 
         let mut client = self.get_client().await?;
         let timestamp: i64 = i64::try_from(self.start_timestamp.as_millis()).map_err(|e| {
@@ -271,7 +306,11 @@ impl Discord {
 
         self.last_activity = Some((activity_fields, git_remote_url));
 
-        debug!("Discord activity updated successfully");
+        if unchanged {
+            debug!("Activity unchanged, liveness write succeeded");
+        } else {
+            debug!("Discord activity updated successfully");
+        }
         Ok(())
     }
 
@@ -283,6 +322,9 @@ impl Discord {
         activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
+        let retry_activity_fields = activity_fields.clone();
+        let retry_git_remote_url = git_remote_url.clone();
+
         // If not connected, try to reconnect first
         if !self.is_connected() {
             warn!("Discord not connected, attempting reconnection...");
@@ -296,12 +338,38 @@ impl Discord {
         // Try to update activity
         match self.change_activity(activity_fields, git_remote_url).await {
             Ok(()) => Ok(()),
-            Err(e) => {
+            Err(first_err) => {
                 // Connection may have dropped, mark as disconnected
-                warn!("Activity update failed, marking as disconnected: {}", e);
+                warn!(
+                    "Activity update failed, attempting reconnect and retry once: {}",
+                    first_err
+                );
                 self.connected.store(false, Ordering::SeqCst);
                 self.last_activity = None;
-                Err(e)
+
+                if let Err(reconnect_err) = self.reconnect().await {
+                    debug!("Reconnect after activity failure failed: {}", reconnect_err);
+                    return Err(first_err);
+                }
+
+                match self
+                    .change_activity(retry_activity_fields, retry_git_remote_url)
+                    .await
+                {
+                    Ok(()) => {
+                        info!("Activity update succeeded after reconnect retry");
+                        Ok(())
+                    }
+                    Err(retry_err) => {
+                        warn!(
+                            "Activity update failed after reconnect retry, marking as disconnected: {}",
+                            retry_err
+                        );
+                        self.connected.store(false, Ordering::SeqCst);
+                        self.last_activity = None;
+                        Err(retry_err)
+                    }
+                }
             }
         }
     }
@@ -310,6 +378,18 @@ impl Discord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::activity::ActivityFields;
+
+    fn sample_fields() -> ActivityFields {
+        ActivityFields {
+            state: Some("state".to_string()),
+            details: Some("details".to_string()),
+            large_image: None,
+            large_text: None,
+            small_image: None,
+            small_text: None,
+        }
+    }
 
     #[test]
     fn test_discord_new_defaults() {
@@ -363,5 +443,68 @@ mod tests {
         let discord = Discord::new();
         // Timestamp should be non-zero (set to current time)
         assert!(discord.start_timestamp.as_millis() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_clear_activity_with_reconnect_uninitialized_client_is_ok() {
+        let mut discord = Discord::new();
+        let result = discord.clear_activity_with_reconnect().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_clear_activity_with_reconnect_uninitialized_clears_cached_activity() {
+        let mut discord = Discord::new();
+        discord.last_activity = Some((sample_fields(), Some("https://example.com".to_string())));
+
+        let result = discord.clear_activity_with_reconnect().await;
+
+        assert!(result.is_ok());
+        assert!(discord.last_activity.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_reconnect_without_client_sets_disconnected_and_returns_err() {
+        let discord = Discord::new();
+        discord.connected.store(true, Ordering::SeqCst);
+
+        let result = discord.reconnect().await;
+
+        assert!(result.is_err());
+        assert!(!discord.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_change_activity_with_reconnect_uninitialized_client_fails() {
+        let mut discord = Discord::new();
+        let fields = sample_fields();
+
+        let result = discord.change_activity_with_reconnect(fields, None).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_change_activity_same_payload_uninitialized_client_returns_err() {
+        let mut discord = Discord::new();
+        discord.last_activity = Some((sample_fields(), None));
+
+        let result = discord.change_activity(sample_fields(), None).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_change_activity_with_reconnect_connected_uninitialized_clears_state() {
+        let mut discord = Discord::new();
+        discord.connected.store(true, Ordering::SeqCst);
+        discord.last_activity = Some((sample_fields(), None));
+
+        let result = discord
+            .change_activity_with_reconnect(sample_fields(), None)
+            .await;
+
+        assert!(result.is_err());
+        assert!(!discord.is_connected());
+        assert!(discord.last_activity.is_none());
     }
 }

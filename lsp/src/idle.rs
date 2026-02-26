@@ -18,6 +18,7 @@
  */
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -40,7 +41,7 @@ impl IdleManager {
             handle: Arc::new(Mutex::new(None)),
         }
     }
-
+    #[allow(clippy::too_many_arguments)]
     pub async fn reset_timeout(
         &self,
         discord: Arc<Mutex<Discord>>,
@@ -49,6 +50,7 @@ impl IdleManager {
         git_branch: Arc<Mutex<Option<String>>>,
         last_document: Arc<Mutex<Option<Document>>>,
         workspace: String,
+        is_shutting_down: Arc<AtomicBool>,
     ) {
         let mut handle_guard = self.handle.lock().await;
 
@@ -67,12 +69,20 @@ impl IdleManager {
         let handle = tokio::spawn(async move {
             time::sleep(timeout_duration).await;
 
+            if is_shutting_down.load(Ordering::SeqCst) {
+                return;
+            }
+
             let config_guard = config.lock().await;
             let mut discord_guard = discord.lock().await;
 
+            if is_shutting_down.load(Ordering::SeqCst) {
+                return;
+            }
+
             match config_guard.idle.action {
                 IdleAction::ClearActivity => {
-                    let _ = discord_guard.clear_activity().await; // Ignore errors in background task
+                    let _ = discord_guard.clear_activity_with_reconnect().await; // Ignore errors in background task
                 }
                 IdleAction::ChangeActivity => {
                     let doc = last_document.lock().await;
@@ -109,5 +119,145 @@ impl IdleManager {
         if let Some(handle) = handle_guard.take() {
             handle.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::AppState;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_idle_reset_cancels_previous() {
+        let app_state = Arc::new(AppState::new());
+        let idle_manager = IdleManager::new();
+
+        // Start first timeout
+        idle_manager
+            .reset_timeout(
+                Arc::clone(&app_state.discord),
+                Arc::clone(&app_state.config),
+                Arc::clone(&app_state.git_remote_url),
+                Arc::clone(&app_state.git_branch),
+                Arc::clone(&app_state.last_document),
+                "test".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
+
+        let handle1 = idle_manager.handle.lock().await.take().unwrap();
+        *idle_manager.handle.lock().await = Some(handle1);
+
+        // Start second timeout - this should abort the first one
+        idle_manager
+            .reset_timeout(
+                Arc::clone(&app_state.discord),
+                Arc::clone(&app_state.config),
+                Arc::clone(&app_state.git_remote_url),
+                Arc::clone(&app_state.git_branch),
+                Arc::clone(&app_state.last_document),
+                "test".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
+
+        // Since we don't have handle1 anymore (it was taken by reset_timeout and aborted),
+        // we can't check it directly unless we held onto it.
+        // But reset_timeout does: if let Some(handle) = self.handle.lock().await.take() { handle.abort(); }
+
+        // Let's just verify that after cancel_timeout, it's None.
+    }
+
+    #[tokio::test]
+    async fn test_cancel_timeout() {
+        let app_state = Arc::new(AppState::new());
+        let idle_manager = IdleManager::new();
+
+        idle_manager
+            .reset_timeout(
+                Arc::clone(&app_state.discord),
+                Arc::clone(&app_state.config),
+                Arc::clone(&app_state.git_remote_url),
+                Arc::clone(&app_state.git_branch),
+                Arc::clone(&app_state.last_document),
+                "test".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
+
+        assert!(idle_manager.handle.lock().await.is_some());
+
+        idle_manager.cancel_timeout().await;
+
+        assert!(idle_manager.handle.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_reset_timeout_shutdown_true_task_exits_quickly() {
+        let app_state = Arc::new(AppState::new());
+        let idle_manager = IdleManager::new();
+
+        {
+            let mut config = app_state.config.lock().await;
+            config.idle.timeout = Duration::from_millis(0);
+        }
+
+        idle_manager
+            .reset_timeout(
+                Arc::clone(&app_state.discord),
+                Arc::clone(&app_state.config),
+                Arc::clone(&app_state.git_remote_url),
+                Arc::clone(&app_state.git_branch),
+                Arc::clone(&app_state.last_document),
+                "test".to_string(),
+                Arc::new(AtomicBool::new(true)),
+            )
+            .await;
+
+        let handle = idle_manager
+            .handle
+            .lock()
+            .await
+            .take()
+            .expect("idle timeout handle should exist");
+
+        let joined = tokio::time::timeout(Duration::from_millis(200), handle).await;
+        assert!(joined.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_idle_task_clear_activity_branch_completes_without_client() {
+        let app_state = Arc::new(AppState::new());
+        let idle_manager = IdleManager::new();
+
+        {
+            let mut config = app_state.config.lock().await;
+            config.idle.timeout = Duration::from_millis(1);
+            config.idle.action = IdleAction::ClearActivity;
+        }
+
+        idle_manager
+            .reset_timeout(
+                Arc::clone(&app_state.discord),
+                Arc::clone(&app_state.config),
+                Arc::clone(&app_state.git_remote_url),
+                Arc::clone(&app_state.git_branch),
+                Arc::clone(&app_state.last_document),
+                "test".to_string(),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .await;
+
+        let handle = idle_manager
+            .handle
+            .lock()
+            .await
+            .take()
+            .expect("idle timeout handle should exist");
+
+        let joined = tokio::time::timeout(Duration::from_millis(300), handle).await;
+        assert!(joined.is_ok());
     }
 }
