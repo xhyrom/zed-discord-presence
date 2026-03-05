@@ -32,15 +32,6 @@ fn symlink_name() -> &'static str {
     }
 }
 
-fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
-    if let Err(e) = fs::soft_link(src, dst) {
-        eprintln!("failed to create symlink ({e}), falling back to copy");
-        fs::copy(src, dst)?;
-    }
-
-    Ok(())
-}
-
 #[allow(clippy::match_wildcard_for_single_variants)]
 impl DiscordPresenceExtension {
     fn fallback(&mut self) -> zed::Result<String> {
@@ -158,7 +149,7 @@ impl DiscordPresenceExtension {
         }
 
         if !fs::metadata(symlink_name).is_ok_and(|stat| stat.is_file()) {
-            if let Err(e) = create_symlink(&binary_path, symlink_name) {
+            if let Err(e) = fs::copy(&binary_path, symlink_name) {
                 eprintln!("failed to create symlink: {e}");
             }
         }
