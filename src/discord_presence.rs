@@ -20,31 +20,25 @@
 use std::fs;
 use zed_extension_api::{self as zed};
 
-#[cfg(windows)]
-const SYMLINK_NAME: &str = "discord-presence-lsp.exe";
-#[cfg(not(windows))]
-const SYMLINK_NAME: &str = "discord-presence-lsp";
-
 struct DiscordPresenceExtension {
     cached_binary_path: Option<String>,
 }
 
-#[cfg(unix)]
-fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
-    std::os::unix::fs::symlink(src, dst)
+fn symlink_name() -> &'static str {
+    let (platform, _) = zed::current_platform();
+    match platform {
+        zed::Os::Windows => "discord-presence-lsp.exe",
+        _ => "discord-presence-lsp",
+    }
 }
 
-#[cfg(windows)]
 fn create_symlink(src: &str, dst: &str) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_file(src, dst).or_else(|_| {
+    if let Err(e) = fs::soft_link(src, dst) {
+        eprintln!("failed to create symlink ({e}), falling back to copy");
         fs::copy(src, dst)?;
-        Ok(())
-    })
-}
+    }
 
-#[cfg(not(any(unix, windows)))]
-fn create_symlink(_src: &str, _dst: &str) -> std::io::Result<()> {
-    fs::soft_link(_src, _dst)
+    Ok(())
 }
 
 #[allow(clippy::match_wildcard_for_single_variants)]
@@ -56,7 +50,7 @@ impl DiscordPresenceExtension {
             }
         }
 
-        let binary_path: String = SYMLINK_NAME.to_string();
+        let binary_path: String = symlink_name().to_string();
 
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             return Err("failed to find fallback language server binary".to_string());
@@ -130,6 +124,8 @@ impl DiscordPresenceExtension {
             _ => format!("{version_dir}/{asset_name}/discord-presence-lsp"),
         };
 
+        let symlink_name = symlink_name();
+
         if !fs::metadata(&binary_path).is_ok_and(|stat| stat.is_file()) {
             zed::set_language_server_installation_status(
                 language_server_id,
@@ -158,11 +154,11 @@ impl DiscordPresenceExtension {
                 }
             }
 
-            let _ = fs::remove_file(SYMLINK_NAME);
+            let _ = fs::remove_file(symlink_name);
         }
 
-        if !fs::metadata(SYMLINK_NAME).is_ok_and(|stat| stat.is_file()) {
-            if let Err(e) = create_symlink(&binary_path, SYMLINK_NAME) {
+        if !fs::metadata(symlink_name).is_ok_and(|stat| stat.is_file()) {
+            if let Err(e) = create_symlink(&binary_path, symlink_name) {
                 eprintln!("failed to create symlink: {e}");
             }
         }
