@@ -43,11 +43,12 @@ pub struct Discord {
     client: Option<Mutex<DiscordIpcClient>>,
     start_timestamp: Duration,
     connected: Arc<AtomicBool>,
+    shutting_down: Arc<AtomicBool>,
     last_activity: Option<(ActivityFields, Option<String>)>,
 }
 
 impl Discord {
-    pub fn new() -> Self {
+    pub fn new(shutting_down: Arc<AtomicBool>) -> Self {
         let start_timestamp = SystemTime::now();
         let since_epoch = start_timestamp
             .duration_since(UNIX_EPOCH)
@@ -57,6 +58,7 @@ impl Discord {
             client: None,
             start_timestamp: since_epoch,
             connected: Arc::new(AtomicBool::new(false)),
+            shutting_down,
             last_activity: None,
         }
     }
@@ -64,6 +66,20 @@ impl Discord {
     /// Returns whether the Discord IPC client is currently connected.
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
+    }
+
+    pub fn has_client(&self) -> bool {
+        self.client.is_some()
+    }
+
+    fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::SeqCst)
+    }
+
+    fn shutdown_error(operation: &str) -> crate::error::PresenceError {
+        crate::error::PresenceError::Discord(format!(
+            "Cannot {operation} while shutdown is in progress"
+        ))
     }
 
     #[instrument(skip(self))]
@@ -82,6 +98,10 @@ impl Discord {
 
     #[instrument(skip(self))]
     pub async fn connect(&self) -> Result<()> {
+        if self.is_shutting_down() {
+            return Err(Self::shutdown_error("connect to Discord IPC"));
+        }
+
         debug!("Connecting to Discord IPC");
 
         let mut client = self.get_client().await?;
@@ -100,6 +120,16 @@ impl Discord {
     /// Will retry up to `MAX_RETRIES` times with increasing delays.
     #[instrument(skip(self))]
     pub async fn connect_with_retry(&self) -> Result<()> {
+        if self.is_shutting_down() {
+            return Err(Self::shutdown_error("connect to Discord IPC"));
+        }
+
+        if !self.has_client() {
+            return Err(crate::error::PresenceError::Discord(
+                "Discord client not initialized".to_string(),
+            ));
+        }
+
         let mut delay = Duration::from_millis(INITIAL_DELAY_MS);
 
         for attempt in 1..=MAX_RETRIES {
@@ -135,6 +165,16 @@ impl Discord {
     /// Attempts to reconnect to Discord, closing any existing connection first.
     #[instrument(skip(self))]
     pub async fn reconnect(&self) -> Result<()> {
+        if self.is_shutting_down() {
+            return Err(Self::shutdown_error("reconnect to Discord IPC"));
+        }
+
+        if !self.has_client() {
+            return Err(crate::error::PresenceError::Discord(
+                "Discord client not initialized".to_string(),
+            ));
+        }
+
         info!("Attempting to reconnect to Discord IPC");
         self.connected.store(false, Ordering::SeqCst);
 
@@ -147,6 +187,11 @@ impl Discord {
     pub async fn kill(&self) -> Result<()> {
         debug!("Killing Discord IPC client");
         self.connected.store(false, Ordering::SeqCst);
+
+        if !self.has_client() {
+            debug!("Skipping Discord IPC close because the client was not initialized");
+            return Ok(());
+        }
 
         let mut client = self.get_client().await?;
         client.close().map_err(|e| {
@@ -170,6 +215,11 @@ impl Discord {
 
         self.last_activity = None;
 
+        if !self.has_client() {
+            debug!("Skipping Discord activity clear because the client was not initialized");
+            return Ok(());
+        }
+
         let mut client = self.get_client().await?;
         client.clear_activity().map_err(|e| {
             error!("Failed to clear activity: {}", e);
@@ -191,6 +241,10 @@ impl Discord {
         activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
+        if self.is_shutting_down() {
+            return Err(Self::shutdown_error("update Discord activity"));
+        }
+
         if let Some((last_fields, last_git)) = &self.last_activity {
             if last_fields == &activity_fields && last_git == &git_remote_url {
                 debug!("Activity unchanged, skipping update");
@@ -268,6 +322,11 @@ impl Discord {
         activity_fields: ActivityFields,
         git_remote_url: Option<String>,
     ) -> Result<()> {
+        if self.is_shutting_down() {
+            self.last_activity = None;
+            return Err(Self::shutdown_error("update Discord activity"));
+        }
+
         // If not connected, try to reconnect first
         if !self.is_connected() {
             warn!("Discord not connected, attempting reconnection...");
@@ -296,22 +355,37 @@ impl Discord {
 mod tests {
     use super::*;
 
+    fn shutdown_signal(value: bool) -> Arc<AtomicBool> {
+        Arc::new(AtomicBool::new(value))
+    }
+
+    fn sample_fields() -> ActivityFields {
+        ActivityFields {
+            state: Some("state".to_string()),
+            details: Some("details".to_string()),
+            large_image: None,
+            large_text: None,
+            small_image: None,
+            small_text: None,
+        }
+    }
+
     #[test]
     fn test_discord_new_defaults() {
-        let discord = Discord::new();
+        let discord = Discord::new(shutdown_signal(false));
         assert!(!discord.is_connected());
         assert!(discord.client.is_none());
     }
 
     #[test]
     fn test_is_connected_default_false() {
-        let discord = Discord::new();
+        let discord = Discord::new(shutdown_signal(false));
         assert!(!discord.is_connected());
     }
 
     #[test]
     fn test_connected_state_can_be_changed() {
-        let discord = Discord::new();
+        let discord = Discord::new(shutdown_signal(false));
         assert!(!discord.is_connected());
 
         // Manually set connected to true
@@ -345,8 +419,36 @@ mod tests {
 
     #[test]
     fn test_start_timestamp_is_set() {
-        let discord = Discord::new();
+        let discord = Discord::new(shutdown_signal(false));
         // Timestamp should be non-zero (set to current time)
         assert!(discord.start_timestamp.as_millis() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_connect_with_retry_fails_fast_during_shutdown() {
+        let discord = Discord::new(shutdown_signal(true));
+
+        let error = discord.connect_with_retry().await.unwrap_err();
+
+        assert!(error.to_string().contains("shutdown is in progress"));
+    }
+
+    #[tokio::test]
+    async fn test_clear_activity_without_client_is_noop() {
+        let mut discord = Discord::new(shutdown_signal(false));
+
+        assert!(discord.clear_activity().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_change_activity_with_reconnect_fails_fast_during_shutdown() {
+        let mut discord = Discord::new(shutdown_signal(true));
+
+        let error = discord
+            .change_activity_with_reconnect(sample_fields(), None)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("shutdown is in progress"));
     }
 }
