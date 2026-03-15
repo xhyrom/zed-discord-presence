@@ -235,17 +235,6 @@ impl LanguageServer for Backend {
     async fn shutdown(&self) -> Result<()> {
         info!("Shutting down Discord Presence LSP");
 
-        let clear_result = {
-            let mut discord = self.app_state.discord.lock().await;
-            discord.clear_activity().await
-        };
-
-        if let Err(e) = clear_result {
-            error!("Failed to clear Discord activity on shutdown: {}", e);
-        } else {
-            info!("Discord activity cleared on shutdown");
-        }
-
         if let Err(e) = self.presence_service.shutdown().await {
             error!("Failed to shutdown presence service: {}", e);
         } else {

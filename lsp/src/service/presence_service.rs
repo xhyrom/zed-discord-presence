@@ -22,6 +22,7 @@ use crate::{
     service::AppState,
 };
 use std::sync::Arc;
+use tracing::{debug, warn};
 
 #[derive(Debug)]
 pub struct PresenceService {
@@ -31,13 +32,20 @@ pub struct PresenceService {
 
 impl PresenceService {
     pub fn new(state: Arc<AppState>) -> Self {
+        let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
+
         Self {
             state,
-            idle_manager: IdleManager::new(),
+            idle_manager,
         }
     }
 
     pub async fn update_presence(&self, doc: Option<Document>) -> Result<()> {
+        if self.state.is_shutting_down() {
+            debug!("Skipping presence update because shutdown is in progress");
+            return Ok(());
+        }
+
         // Store the last document for idle use
         {
             let mut last_doc = self.state.last_document.lock().await;
@@ -47,6 +55,11 @@ impl PresenceService {
         // Reset idle timeout if document changed
         if doc.is_some() {
             self.reset_idle_timeout().await?;
+        }
+
+        if self.state.is_shutting_down() {
+            debug!("Skipping Discord activity update because shutdown started mid-update");
+            return Ok(());
         }
 
         // Build and set activity
@@ -59,6 +72,11 @@ impl PresenceService {
     }
 
     pub async fn initialize_discord(&self, application_id: &str) -> Result<()> {
+        if self.state.is_shutting_down() {
+            debug!("Skipping Discord initialization because shutdown is in progress");
+            return Ok(());
+        }
+
         let mut discord = self.state.discord.lock().await;
         discord.create_client(application_id)?;
         discord.connect_with_retry().await?;
@@ -66,8 +84,36 @@ impl PresenceService {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        let discord = self.state.discord.lock().await;
-        discord.kill().await?;
+        if !self.state.mark_shutting_down() {
+            debug!("Presence service shutdown already in progress");
+            self.idle_manager.cancel_timeout().await;
+            return Ok(());
+        }
+
+        self.idle_manager.cancel_timeout().await;
+
+        let mut discord = self.state.discord.lock().await;
+        let mut first_error = None;
+
+        if let Err(error) = discord.clear_activity().await {
+            warn!(
+                "Failed to clear Discord activity during shutdown: {}",
+                error
+            );
+            first_error = Some(error);
+        }
+
+        if let Err(error) = discord.kill().await {
+            warn!("Failed to close Discord IPC during shutdown: {}", error);
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        }
+
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+
         Ok(())
     }
 
@@ -103,6 +149,11 @@ impl PresenceService {
         activity_fields: crate::activity::ActivityFields,
         git_url: Option<String>,
     ) -> Result<()> {
+        if self.state.is_shutting_down() {
+            debug!("Skipping Discord activity update because shutdown is in progress");
+            return Ok(());
+        }
+
         let mut discord = self.state.discord.lock().await;
 
         discord
@@ -113,6 +164,11 @@ impl PresenceService {
     }
 
     async fn reset_idle_timeout(&self) -> Result<()> {
+        if self.state.is_shutting_down() {
+            debug!("Skipping idle timeout reset because shutdown is in progress");
+            return Ok(());
+        }
+
         let workspace_name = {
             let workspace = self.state.workspace.lock().await;
             workspace.name().to_string()
@@ -129,5 +185,45 @@ impl PresenceService {
             .await;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_shutdown_cancels_idle_timeout_and_marks_state() {
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state));
+
+        service.reset_idle_timeout().await.unwrap();
+        assert!(service.idle_manager.has_timeout().await);
+
+        service.shutdown().await.unwrap();
+
+        assert!(state.is_shutting_down());
+        assert!(!service.idle_manager.has_timeout().await);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_is_idempotent() {
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(state);
+
+        assert!(service.shutdown().await.is_ok());
+        assert!(service.shutdown().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_update_presence_is_ignored_during_shutdown() {
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state));
+
+        assert!(state.mark_shutting_down());
+        assert!(service.update_presence(None).await.is_ok());
+
+        let last_document = state.last_document.lock().await;
+        assert!(last_document.is_none());
     }
 }
