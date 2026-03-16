@@ -51,9 +51,17 @@ fn transform_url(url: String, overrides: &HashMap<String, String>) -> String {
     if url.starts_with("https://") || url.starts_with("http://") {
         let mut result = url;
         for (from, to) in overrides {
-            result = result
-                .replace(&format!("://{from}/"), &format!("://{to}/"))
-                .replace(&format!("://{from}"), &format!("://{to}"));
+            result = result.replace(&format!("://{from}/"), &format!("://{to}/"));
+
+            let needle = format!("://{from}");
+            if let Some(pos) = result.find(&needle) {
+                let after = pos + needle.len();
+                if after == result.len()
+                    || matches!(result.as_bytes()[after], b'/' | b':' | b'?' | b'#')
+                {
+                    result.replace_range(pos..after, &format!("://{to}"));
+                }
+            }
         }
         return result;
     }
@@ -137,5 +145,31 @@ mod tests {
         if let Some(ref b) = branch {
             assert!(!b.is_empty());
         }
+    }
+
+    #[test]
+    fn test_transform_url_ssh_alias_override() {
+        let mut overrides = HashMap::new();
+        overrides.insert("github-b".to_string(), "github.com".to_string());
+        let input = "git@github-b:user/repo.git".to_string();
+        let result = super::transform_url(input, &overrides);
+        assert_eq!(result, "https://github.com/user/repo");
+    }
+
+    #[test]
+    fn test_transform_url_https_override() {
+        let mut overrides = HashMap::new();
+        overrides.insert("github-b".to_string(), "github.com".to_string());
+        let input = "https://github-b/user/repo".to_string();
+        let result = super::transform_url(input, &overrides);
+        assert_eq!(result, "https://github.com/user/repo");
+    }
+
+    #[test]
+    fn test_transform_url_no_overrides_noop_for_https() {
+        let overrides: HashMap<String, String> = HashMap::new();
+        let input = "https://github.com/user/repo".to_string();
+        let result = super::transform_url(input.clone(), &overrides);
+        assert_eq!(result, input);
     }
 }
