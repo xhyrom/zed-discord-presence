@@ -72,11 +72,11 @@ fn transform_url(url: String, overrides: &HashMap<String, String>) -> String {
 
     if let Some((domain, path)) = url.split_once(':') {
         if !path.starts_with("//") {
-            let final_domain = overrides.get(domain).map(String::as_str).unwrap_or(domain);
+            let final_domain = overrides.get(domain).map_or(domain, String::as_str);
             url = format!("{final_domain}/{path}");
         }
     } else if let Some((domain, path)) = url.split_once('/') {
-        let final_domain = overrides.get(domain).map(String::as_str).unwrap_or(domain);
+        let final_domain = overrides.get(domain).map_or(domain, String::as_str);
         url = format!("{final_domain}/{path}");
     }
 
