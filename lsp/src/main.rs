@@ -139,7 +139,12 @@ impl LanguageServer for Backend {
 
             info!("Checking git repo at: {}", clean_path);
 
-            let remote_url = get_repository_and_remote(clean_path);
+            let overrides = {
+                let config = self.app_state.config.lock().await;
+                config.git_host_overrides.clone()
+            };
+
+            let remote_url = get_repository_and_remote(clean_path, &overrides);
 
             if let Some(ref url) = remote_url {
                 info!("Git remote URL found: {}", url);
