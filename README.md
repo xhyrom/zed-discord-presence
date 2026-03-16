@@ -187,6 +187,17 @@ will display a button to open the Git repository.
 "git_integration": true
 ```
 
+### Git Host Overrides
+
+The `git_host_overrides` option allows you to replace specific hostnames in your Git remote URLs with real domains. This is especially useful if you use custom SSH aliases in your `~/.ssh/config` (e.g., mapping `github-b` to `github.com`), which would otherwise generate invalid "View Repository" links in Discord.
+
+```jsonc
+"git_host_overrides": {
+  "github-b": "github.example.com",
+  "gitlab-work": "gitlab.corporation.com"
+}
+```
+
 ### Per-Language Configuration
 
 The `languages` field allows you to override the default activity settings for specific languages.
