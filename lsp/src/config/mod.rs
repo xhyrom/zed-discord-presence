@@ -45,6 +45,7 @@ pub struct Configuration {
     pub rules: Rules,
     pub idle: Idle,
     pub git_integration: bool,
+    pub git_host_overrides: HashMap<String, String>,
     pub languages: HashMap<String, Activity>,
 }
 
@@ -57,6 +58,7 @@ impl Default for Configuration {
             rules: Rules::default(),
             idle: Idle::default(),
             git_integration: true,
+            git_host_overrides: HashMap::default(),
             languages: HashMap::default(),
         }
     }
@@ -84,6 +86,14 @@ impl UpdateFromJson for Configuration {
 
         if let Some(git_integration) = json.get("git_integration") {
             self.git_integration = git_integration.as_bool().unwrap_or(true);
+        }
+
+        if let Some(git_host_overrides) = json.get("git_host_overrides") {
+            for (key, value) in git_host_overrides.as_object().unwrap_or(&Map::default()) {
+                if let Some(v) = value.as_str() {
+                    self.git_host_overrides.insert(key.to_owned(), v.to_owned());
+                }
+            }
         }
 
         if let Some(languages) = json.get("languages") {

@@ -18,31 +18,44 @@
  */
 
 use git2::Repository;
+use std::collections::HashMap;
 use std::path::Path;
 
 fn get_repository(path: &str) -> Option<Repository> {
     Repository::open(path).ok()
 }
 
-fn get_main_remote_url(repository: &Repository) -> Option<String> {
+fn get_main_remote_url(
+    repository: &Repository,
+    overrides: &HashMap<String, String>,
+) -> Option<String> {
     if let Ok(remote) = repository.find_remote("origin") {
-        return remote.url().map(|url| transform_url(url.to_string()));
+        return remote
+            .url()
+            .map(|url| transform_url(url.to_string(), overrides));
     }
 
     match repository.remotes() {
         Ok(remotes) => remotes.get(0).and_then(|name| {
-            repository
-                .find_remote(name)
-                .ok()
-                .and_then(|remote| remote.url().map(|url| transform_url(url.to_string())))
+            repository.find_remote(name).ok().and_then(|remote| {
+                remote
+                    .url()
+                    .map(|url| transform_url(url.to_string(), overrides))
+            })
         }),
         Err(_) => None,
     }
 }
 
-fn transform_url(url: String) -> String {
+fn transform_url(url: String, overrides: &HashMap<String, String>) -> String {
     if url.starts_with("https://") || url.starts_with("http://") {
-        return url;
+        let mut result = url;
+        for (from, to) in overrides {
+            result = result
+                .replace(&format!("://{from}/"), &format!("://{to}/"))
+                .replace(&format!("://{from}"), &format!("://{to}"));
+        }
+        return result;
     }
 
     let mut url = url;
@@ -59,8 +72,12 @@ fn transform_url(url: String) -> String {
 
     if let Some((domain, path)) = url.split_once(':') {
         if !path.starts_with("//") {
-            url = format!("{domain}/{path}");
+            let final_domain = overrides.get(domain).map(String::as_str).unwrap_or(domain);
+            url = format!("{final_domain}/{path}");
         }
+    } else if let Some((domain, path)) = url.split_once('/') {
+        let final_domain = overrides.get(domain).map(String::as_str).unwrap_or(domain);
+        url = format!("{final_domain}/{path}");
     }
 
     if Path::new(&url)
@@ -73,9 +90,6 @@ fn transform_url(url: String) -> String {
     format!("https://{url}")
 }
 
-/// Gets the current branch name from a repository path.
-/// Returns the branch name if on a branch, or a short commit hash if in detached HEAD state.
-/// Returns None if the path is not a git repository or an error occurs.
 pub fn get_current_branch(path: &str) -> Option<String> {
     let repo = get_repository(path)?;
     let head = repo.head().ok()?;
@@ -83,7 +97,6 @@ pub fn get_current_branch(path: &str) -> Option<String> {
     if head.is_branch() {
         head.shorthand().map(str::to_string)
     } else {
-        // Detached HEAD - return short commit hash
         head.target().map(|oid| {
             let hex = oid.to_string();
             hex[..7.min(hex.len())].to_string()
@@ -91,9 +104,12 @@ pub fn get_current_branch(path: &str) -> Option<String> {
     }
 }
 
-pub fn get_repository_and_remote(path: &str) -> Option<String> {
+pub fn get_repository_and_remote(
+    path: &str,
+    overrides: &HashMap<String, String>,
+) -> Option<String> {
     match get_repository(path) {
-        Some(repository) => get_main_remote_url(&repository),
+        Some(repository) => get_main_remote_url(&repository, overrides),
         None => None,
     }
 }
@@ -104,7 +120,6 @@ mod tests {
 
     #[test]
     fn test_get_current_branch_non_git_directory() {
-        // /tmp is typically not a git repository
         let branch = get_current_branch("/tmp");
         assert!(branch.is_none());
     }
@@ -117,11 +132,8 @@ mod tests {
 
     #[test]
     fn test_get_current_branch_current_repo() {
-        // Test on the current repository - should return a branch name
-        // This test assumes we're running from within a git repository
         let branch = get_current_branch(".");
-        // If we're in a git repo, we should get Some branch
-        // The branch name should be non-empty if present
+
         if let Some(ref b) = branch {
             assert!(!b.is_empty());
         }
