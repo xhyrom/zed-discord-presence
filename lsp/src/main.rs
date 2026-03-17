@@ -125,6 +125,26 @@ impl LanguageServer for Backend {
             info!("Workspace set to: {}", workspace.name());
         }
 
+        // Update config
+        {
+            let mut config = self.app_state.config.lock().await;
+            if let Err(e) = config.update(params.initialization_options) {
+                error!("Failed to update config: {}", e);
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+
+            debug!(
+                "Configuration updated: application_id={}, git_integration={}",
+                config.application_id, config.git_integration
+            );
+
+            // Check if workspace is suitable
+            if !config.rules.suitable(workspace_path.to_str().unwrap_or("")) {
+                info!("Workspace not suitable according to rules, exiting");
+                exit(0);
+            }
+        }
+
         // Set git remote URL
         {
             let mut git_remote_url = self.app_state.git_remote_url.lock().await;
@@ -161,26 +181,6 @@ impl LanguageServer for Backend {
                 info!("Git branch: {}", branch);
             } else {
                 debug!("No git branch found at path: {}", clean_path);
-            }
-        }
-
-        // Update config
-        {
-            let mut config = self.app_state.config.lock().await;
-            if let Err(e) = config.update(params.initialization_options) {
-                error!("Failed to update config: {}", e);
-                return Err(tower_lsp::jsonrpc::Error::internal_error());
-            }
-
-            debug!(
-                "Configuration updated: application_id={}, git_integration={}",
-                config.application_id, config.git_integration
-            );
-
-            // Check if workspace is suitable
-            if !config.rules.suitable(workspace_path.to_str().unwrap_or("")) {
-                info!("Workspace not suitable according to rules, exiting");
-                exit(0);
             }
         }
 

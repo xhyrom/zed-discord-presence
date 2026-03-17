@@ -20,6 +20,7 @@
 use git2::Repository;
 use std::collections::HashMap;
 use std::path::Path;
+use tracing::debug;
 
 fn get_repository(path: &str) -> Option<Repository> {
     Repository::open(path).ok()
@@ -47,26 +48,28 @@ fn get_main_remote_url(
     }
 }
 
-fn transform_url(url: String, overrides: &HashMap<String, String>) -> String {
-    if url.starts_with("https://") || url.starts_with("http://") {
-        let mut result = url;
-        for (from, to) in overrides {
-            result = result.replace(&format!("://{from}/"), &format!("://{to}/"));
+fn transform_url(mut url: String, overrides: &HashMap<String, String>) -> String {
+    debug!("transform_url: url={}", url);
+    debug!("transform_url: overrides={:?}", overrides);
 
-            let needle = format!("://{from}");
-            if let Some(pos) = result.find(&needle) {
-                let after = pos + needle.len();
-                if after == result.len()
-                    || matches!(result.as_bytes()[after], b'/' | b':' | b'?' | b'#')
-                {
-                    result.replace_range(pos..after, &format!("://{to}"));
-                }
-            }
+    for (from, to) in overrides {
+        url = url.replace(&format!("://{from}/"), &format!("://{to}/"));
+        url = url.replace(&format!("://{from}:"), &format!("://{to}:"));
+        if url.ends_with(&format!("://{from}")) {
+            url = url.replace(&format!("://{from}"), &format!("://{to}"));
         }
-        return result;
+
+        url = url.replace(&format!("@{from}:"), &format!("@{to}:"));
+        url = url.replace(&format!("@{from}/"), &format!("@{to}/"));
+
+        if url.starts_with(&format!("{from}:")) {
+            url = url.replacen(&format!("{from}:"), &format!("{to}:"), 1);
+        }
     }
 
-    let mut url = url;
+    if url.starts_with("https://") || url.starts_with("http://") {
+        return url;
+    }
 
     if url.starts_with("ssh://") {
         url = url.replace("ssh://", "");
@@ -80,12 +83,10 @@ fn transform_url(url: String, overrides: &HashMap<String, String>) -> String {
 
     if let Some((domain, path)) = url.split_once(':') {
         if !path.starts_with("//") {
-            let final_domain = overrides.get(domain).map_or(domain, String::as_str);
-            url = format!("{final_domain}/{path}");
+            url = format!("{domain}/{path}");
         }
     } else if let Some((domain, path)) = url.split_once('/') {
-        let final_domain = overrides.get(domain).map_or(domain, String::as_str);
-        url = format!("{final_domain}/{path}");
+        url = format!("{domain}/{path}");
     }
 
     if Path::new(&url)
@@ -171,5 +172,14 @@ mod tests {
         let input = "https://github.com/user/repo".to_string();
         let result = super::transform_url(input.clone(), &overrides);
         assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_transform_url_ssh_override() {
+        let mut overrides = HashMap::new();
+        overrides.insert("github-b".to_string(), "github.com".to_string());
+        let input = "git@github-b:user/repo.git".to_string();
+        let result = super::transform_url(input, &overrides);
+        assert_eq!(result, "https://github.com/user/repo");
     }
 }
