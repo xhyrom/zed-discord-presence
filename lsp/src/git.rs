@@ -20,7 +20,6 @@
 use git2::Repository;
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::debug;
 
 fn get_repository(path: &str) -> Option<Repository> {
     Repository::open(path).ok()
