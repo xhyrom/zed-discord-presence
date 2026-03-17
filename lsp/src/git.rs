@@ -49,9 +49,6 @@ fn get_main_remote_url(
 }
 
 fn transform_url(mut url: String, overrides: &HashMap<String, String>) -> String {
-    debug!("transform_url: url={}", url);
-    debug!("transform_url: overrides={:?}", overrides);
-
     for (from, to) in overrides {
         url = url.replace(&format!("://{from}/"), &format!("://{to}/"));
         url = url.replace(&format!("://{from}:"), &format!("://{to}:"));
