@@ -34,7 +34,7 @@ impl Document {
         Self {
             path: url
                 .to_file_path()
-                .unwrap_or_else(|_| PathBuf::from(url.path())),
+                .unwrap_or_else(|()| PathBuf::from(url.path())),
             workspace_root: workspace_root.to_owned(),
             line_number,
         }
