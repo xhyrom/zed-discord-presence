@@ -138,10 +138,6 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn normalized(path: &Path) -> String {
-        path.to_string_lossy().replace('\\', "/")
-    }
-
     #[cfg(windows)]
     fn workspace_root() -> PathBuf {
         PathBuf::from(r"C:\Users\tester\project")
@@ -164,7 +160,7 @@ mod tests {
         assert_eq!(doc.get_relative_file_path().unwrap(), "src/test.rs");
         assert_eq!(
             doc.get_full_directory_name().unwrap(),
-            normalized(&workspace_root.join("src"))
+            super::normalize_path(&workspace_root.join("src"))
         );
         assert_eq!(doc.get_directory_name().unwrap(), "src");
         assert_eq!(doc.get_folder_and_file().unwrap(), "src/test.rs");
