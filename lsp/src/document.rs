@@ -68,7 +68,7 @@ impl Document {
             PresenceError::Config("File is not within the workspace root".to_string())
         })?;
 
-        Ok(relative_path.to_string_lossy().to_string())
+        Ok(normalize_path(relative_path))
     }
 
     pub fn get_full_directory_name(&self) -> Result<String> {
@@ -76,7 +76,7 @@ impl Document {
             PresenceError::Config("Could not determine parent directory".to_string())
         })?;
 
-        Ok(parent_dir.to_string_lossy().to_string())
+        Ok(normalize_path(parent_dir))
     }
 
     pub fn get_directory_name(&self) -> Result<String> {
@@ -95,7 +95,7 @@ impl Document {
         let parent = self.get_directory_name()?;
         let file = self.get_filename()?;
 
-        Ok(Path::new(&parent).join(file).to_string_lossy().to_string())
+        Ok(format!("{parent}/{file}"))
     }
 
     /// Gets the file size in bytes.
@@ -112,6 +112,10 @@ impl Document {
             Err(_) => "unknown".to_string(),
         }
     }
+}
+
+fn normalize_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// Formats a file size in bytes to a human-readable string.
@@ -132,7 +136,7 @@ fn format_file_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::{PathBuf, MAIN_SEPARATOR};
+    use std::path::PathBuf;
 
     #[cfg(windows)]
     fn workspace_root() -> PathBuf {
@@ -153,19 +157,13 @@ mod tests {
 
         assert_eq!(doc.get_filename().unwrap(), "test.rs");
         assert_eq!(doc.get_extension(), "rs");
-        assert_eq!(
-            doc.get_relative_file_path().unwrap(),
-            format!("src{}test.rs", MAIN_SEPARATOR)
-        );
+        assert_eq!(doc.get_relative_file_path().unwrap(), "src/test.rs");
         assert_eq!(
             doc.get_full_directory_name().unwrap(),
-            workspace_root.join("src")
+            super::normalize_path(&workspace_root.join("src"))
         );
         assert_eq!(doc.get_directory_name().unwrap(), "src");
-        assert_eq!(
-            doc.get_folder_and_file().unwrap(),
-            format!("src{}test.rs", MAIN_SEPARATOR)
-        );
+        assert_eq!(doc.get_folder_and_file().unwrap(), "src/test.rs");
     }
 
     #[test]
