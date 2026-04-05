@@ -31,11 +31,10 @@ pub struct Document {
 
 impl Document {
     pub fn new(url: &Url, workspace_root: &Path, line_number: Option<u32>) -> Self {
-        let url_path = url.path();
-        let path = Path::new(url_path);
-
         Self {
-            path: path.to_owned(),
+            path: url
+                .to_file_path()
+                .unwrap_or_else(|()| PathBuf::from(url.path())),
             workspace_root: workspace_root.to_owned(),
             line_number,
         }
@@ -53,8 +52,7 @@ impl Document {
             .to_str()
             .ok_or_else(|| PresenceError::Config("Invalid filename encoding".to_string()))?;
 
-        let decoded_filename = urlencoding::decode(filename)?;
-        Ok(decoded_filename.to_string())
+        Ok(filename.to_string())
     }
 
     pub fn get_extension(&self) -> &str {
@@ -70,7 +68,7 @@ impl Document {
             PresenceError::Config("File is not within the workspace root".to_string())
         })?;
 
-        Ok(relative_path.to_str().unwrap_or("").to_string())
+        Ok(normalize_path(relative_path))
     }
 
     pub fn get_full_directory_name(&self) -> Result<String> {
@@ -78,7 +76,7 @@ impl Document {
             PresenceError::Config("Could not determine parent directory".to_string())
         })?;
 
-        Ok(parent_dir.to_str().unwrap_or("").to_string())
+        Ok(normalize_path(parent_dir))
     }
 
     pub fn get_directory_name(&self) -> Result<String> {
@@ -97,11 +95,7 @@ impl Document {
         let parent = self.get_directory_name()?;
         let file = self.get_filename()?;
 
-        Ok(Path::new(&parent)
-            .join(file)
-            .to_str()
-            .unwrap_or("")
-            .to_string())
+        Ok(format!("{parent}/{file}"))
     }
 
     /// Gets the file size in bytes.
@@ -118,6 +112,10 @@ impl Document {
             Err(_) => "unknown".to_string(),
         }
     }
+}
+
+fn normalize_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// Formats a file size in bytes to a human-readable string.
@@ -138,26 +136,42 @@ fn format_file_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    #[cfg(windows)]
+    fn workspace_root() -> PathBuf {
+        PathBuf::from(r"C:\Users\tester\project")
+    }
+
+    #[cfg(not(windows))]
+    fn workspace_root() -> PathBuf {
+        PathBuf::from("/home/user/project")
+    }
 
     #[test]
     fn test_document_creation() {
-        let url = Url::parse("file:///home/user/project/test.rs").unwrap();
-        let workspace_root = Path::new("/home/user/project");
-        let doc = Document::new(&url, workspace_root, None);
+        let workspace_root = workspace_root();
+        let file_path = workspace_root.join("src").join("test.rs");
+        let url = Url::from_file_path(&file_path).unwrap();
+        let doc = Document::new(&url, &workspace_root, None);
 
         assert_eq!(doc.get_filename().unwrap(), "test.rs");
         assert_eq!(doc.get_extension(), "rs");
-        assert_eq!(doc.get_relative_file_path().unwrap(), "test.rs");
-        assert_eq!(doc.get_full_directory_name().unwrap(), "/home/user/project");
-        assert_eq!(doc.get_directory_name().unwrap(), "project");
-        assert_eq!(doc.get_folder_and_file().unwrap(), "project/test.rs");
+        assert_eq!(doc.get_relative_file_path().unwrap(), "src/test.rs");
+        assert_eq!(
+            doc.get_full_directory_name().unwrap(),
+            super::normalize_path(&workspace_root.join("src"))
+        );
+        assert_eq!(doc.get_directory_name().unwrap(), "src");
+        assert_eq!(doc.get_folder_and_file().unwrap(), "src/test.rs");
     }
 
     #[test]
     fn test_document_with_encoded_filename() {
-        let url = Url::parse("file:///home/user/project/test%20file.rs").unwrap();
-        let workspace_root = Path::new("/home/user/project");
-        let doc = Document::new(&url, workspace_root, None);
+        let workspace_root = workspace_root();
+        let file_path = workspace_root.join("test file.rs");
+        let url = Url::from_file_path(&file_path).unwrap();
+        let doc = Document::new(&url, &workspace_root, None);
 
         assert_eq!(doc.get_filename().unwrap(), "test file.rs");
     }
