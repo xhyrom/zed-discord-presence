@@ -17,4 +17,4 @@ runs:
         targets: ${{ inputs.targets }}
 
     - name: cache dependencies
-      uses: Swatinem/rust-cache@v2
+      uses: Swatinem/rust-cache@f51f967e158417aafa338a1e46ab22095f07aa01 # v2

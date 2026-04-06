@@ -5,7 +5,7 @@ jobs:
   sync:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@0c366fd6a839edf440554fa01a7085ccba70ac98 # v6
         if: github.event_name != 'pull_request'
         with:
           fetch-depth: 0
