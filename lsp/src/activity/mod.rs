@@ -24,6 +24,20 @@ use crate::{
     config::Configuration, document::Document, languages::get_language, util::Placeholders,
 };
 
+fn resolve_workspace(workspace: &str) -> String {
+    std::fs::read_to_string(std::path::Path::new(workspace).join(".zed/settings.json"))
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .and_then(|json| json["project_name"].as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| {
+            std::path::Path::new(workspace)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(workspace)
+                .to_string()
+        })
+}
+
 #[derive(Debug, Clone)]
 pub struct ActivityManager;
 
@@ -34,15 +48,14 @@ impl ActivityManager {
         workspace: &str,
         git_branch: Option<String>,
     ) -> ActivityFields {
-        let placeholders = Placeholders::new(doc, config, workspace, git_branch);
-
+        let workspace = resolve_workspace(workspace);
+        let placeholders = Placeholders::new(doc, config, &workspace, git_branch);
         let activity = if let Some(doc) = doc {
             let language = get_language(doc).to_lowercase();
             config.languages.get(&language).unwrap_or(&config.activity)
         } else {
             &config.activity
         };
-
         ActivityFields::from(activity).resolve_placeholders(&placeholders)
     }
 
@@ -52,8 +65,8 @@ impl ActivityManager {
         workspace: &str,
         git_branch: Option<String>,
     ) -> ActivityFields {
-        let placeholders = Placeholders::new(doc, config, workspace, git_branch);
-
+        let workspace = resolve_workspace(workspace);
+        let placeholders = Placeholders::new(doc, config, &workspace, git_branch);
         ActivityFields::from(&config.idle.activity).resolve_placeholders(&placeholders)
     }
 }
