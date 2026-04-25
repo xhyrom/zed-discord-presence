@@ -128,7 +128,7 @@ impl PresenceService {
         Ok(ActivityManager::build_activity_fields(
             doc,
             &config,
-            workspace.name(),
+            workspace.path().unwrap_or_else(|| workspace.name()),
             git_branch,
         ))
     }
@@ -169,9 +169,12 @@ impl PresenceService {
             return Ok(());
         }
 
-        let workspace_name = {
+        let workspace_path = {
             let workspace = self.state.workspace.lock().await;
-            workspace.name().to_string()
+            workspace
+                .path()
+                .unwrap_or_else(|| workspace.name())
+                .to_string()
         };
         self.idle_manager
             .reset_timeout(
@@ -180,7 +183,7 @@ impl PresenceService {
                 Arc::clone(&self.state.git_remote_url),
                 Arc::clone(&self.state.git_branch),
                 Arc::clone(&self.state.last_document),
-                workspace_name,
+                workspace_path,
             )
             .await;
 
