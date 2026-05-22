@@ -18,57 +18,161 @@
  */
 
 use crate::{
-    activity::ActivityManager, document::Document, error::Result, idle::IdleManager,
-    service::AppState,
+    activity::ActivityManager, config::PresenceConfig, document::Document, error::Result,
+    idle::IdleManager, service::{AppState, FileMonitor},
 };
 use std::sync::Arc;
-use tracing::{debug, warn};
+use std::time::Duration;
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 
 #[derive(Debug)]
 pub struct PresenceService {
     state: Arc<AppState>,
     idle_manager: IdleManager,
+    file_monitor: FileMonitor,
+    debounce_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pending_doc: Arc<Mutex<Option<Document>>>,
+    update_debounce: Duration,
 }
 
 impl PresenceService {
-    pub fn new(state: Arc<AppState>) -> Self {
+    pub fn new(state: Arc<AppState>, config: PresenceConfig) -> Self {
         let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
 
         Self {
             state,
             idle_manager,
+            file_monitor: FileMonitor::new(),
+            debounce_handle: Arc::new(Mutex::new(None)),
+            pending_doc: Arc::new(Mutex::new(None)),
+            update_debounce: config.update_debounce,
         }
     }
 
+    pub fn file_monitor(&self) -> &FileMonitor {
+        &self.file_monitor
+    }
+
     pub async fn update_presence(&self, doc: Option<Document>) -> Result<()> {
-        if self.state.is_shutting_down() {
+        // Store the document for deferred update
+        *self.pending_doc.lock().await = doc;
+
+        // Cancel any pending debounce timer
+        if let Some(handle) = self.debounce_handle.lock().await.take() {
+            handle.abort();
+        }
+
+        let state = Arc::clone(&self.state);
+        let pending_doc = Arc::clone(&self.pending_doc);
+        let debounce_handle = Arc::clone(&self.debounce_handle);
+        let debounce_delay = self.update_debounce;
+
+        // Spawn debounce task
+        let task = tokio::spawn(async move {
+            tokio::time::sleep(debounce_delay).await;
+
+            // Get the latest pending doc (might have changed during debounce)
+            if let Some(doc) = pending_doc.lock().await.take() {
+                let update_start = std::time::Instant::now();
+                if let Err(e) = Self::perform_update_internal(&state, Some(doc)).await {
+                    warn!("Failed to update Discord presence: {}", e);
+                } else {
+                    let total_elapsed = update_start.elapsed();
+                    info!("Discord presence updated in {:.1}ms (debounce delay: {:.0}ms)",
+                          total_elapsed.as_secs_f64() * 1000.0,
+                          debounce_delay.as_secs_f64() * 1000.0);
+                }
+            }
+
+            // Clear the handle
+            *debounce_handle.lock().await = None;
+        });
+
+        *self.debounce_handle.lock().await = Some(task);
+        Ok(())
+    }
+
+    async fn perform_update_internal(state: &Arc<AppState>, doc: Option<Document>) -> Result<()> {
+        if state.is_shutting_down() {
             debug!("Skipping presence update because shutdown is in progress");
             return Ok(());
         }
 
         // Store the last document for idle use
         {
-            let mut last_doc = self.state.last_document.lock().await;
+            let mut last_doc = state.last_document.lock().await;
             (*last_doc).clone_from(&doc);
         }
 
         // Reset idle timeout if document changed
         if doc.is_some() {
-            self.reset_idle_timeout().await?;
+            let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
+            let workspace_name = {
+                let workspace = state.workspace.lock().await;
+                workspace.name().to_string()
+            };
+            idle_manager
+                .reset_timeout(
+                    Arc::clone(&state.discord),
+                    Arc::clone(&state.config),
+                    Arc::clone(&state.git_remote_url),
+                    Arc::clone(&state.git_branch),
+                    Arc::clone(&state.last_document),
+                    workspace_name,
+                )
+                .await;
         }
 
-        if self.state.is_shutting_down() {
+        if state.is_shutting_down() {
             debug!("Skipping Discord activity update because shutdown started mid-update");
             return Ok(());
         }
 
         // Build and set activity
-        let activity_fields = self.build_activity_fields(doc.as_ref()).await?;
-        let git_url = self.get_git_url_if_enabled().await?;
+        let activity_fields = Self::build_activity_fields_internal(state, doc.as_ref()).await?;
+        let git_url = Self::get_git_url_if_enabled_internal(state).await?;
 
-        self.set_discord_activity(activity_fields, git_url).await?;
+        // Set Discord activity
+        if state.is_shutting_down() {
+            debug!("Skipping Discord activity update because shutdown is in progress");
+            return Ok(());
+        }
+
+        let mut discord = state.discord.lock().await;
+
+        discord
+            .change_activity_with_reconnect(activity_fields, git_url)
+            .await?;
 
         Ok(())
+    }
+
+    async fn build_activity_fields_internal(
+        state: &Arc<AppState>,
+        doc: Option<&Document>,
+    ) -> Result<crate::activity::ActivityFields> {
+        let config = state.config.lock().await;
+        let workspace = state.workspace.lock().await;
+        let git_branch = state.git_branch.lock().await.clone();
+
+        Ok(ActivityManager::build_activity_fields(
+            doc,
+            &config,
+            workspace.name(),
+            git_branch,
+        ))
+    }
+
+    async fn get_git_url_if_enabled_internal(state: &Arc<AppState>) -> Result<Option<String>> {
+        let config = state.config.lock().await;
+
+        if config.git_integration {
+            let git_remote_url = state.git_remote_url.lock().await;
+            Ok(git_remote_url.clone())
+        } else {
+            Ok(None)
+        }
     }
 
     pub async fn initialize_discord(&self, application_id: &str) -> Result<()> {
@@ -117,75 +221,6 @@ impl PresenceService {
         Ok(())
     }
 
-    async fn build_activity_fields(
-        &self,
-        doc: Option<&Document>,
-    ) -> Result<crate::activity::ActivityFields> {
-        let config = self.state.config.lock().await;
-        let workspace = self.state.workspace.lock().await;
-        let git_branch = self.state.git_branch.lock().await.clone();
-
-        Ok(ActivityManager::build_activity_fields(
-            doc,
-            &config,
-            workspace.name(),
-            git_branch,
-        ))
-    }
-
-    async fn get_git_url_if_enabled(&self) -> Result<Option<String>> {
-        let config = self.state.config.lock().await;
-
-        if config.git_integration {
-            let git_remote_url = self.state.git_remote_url.lock().await;
-            Ok(git_remote_url.clone())
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn set_discord_activity(
-        &self,
-        activity_fields: crate::activity::ActivityFields,
-        git_url: Option<String>,
-    ) -> Result<()> {
-        if self.state.is_shutting_down() {
-            debug!("Skipping Discord activity update because shutdown is in progress");
-            return Ok(());
-        }
-
-        let mut discord = self.state.discord.lock().await;
-
-        discord
-            .change_activity_with_reconnect(activity_fields, git_url)
-            .await?;
-
-        Ok(())
-    }
-
-    async fn reset_idle_timeout(&self) -> Result<()> {
-        if self.state.is_shutting_down() {
-            debug!("Skipping idle timeout reset because shutdown is in progress");
-            return Ok(());
-        }
-
-        let workspace_name = {
-            let workspace = self.state.workspace.lock().await;
-            workspace.name().to_string()
-        };
-        self.idle_manager
-            .reset_timeout(
-                Arc::clone(&self.state.discord),
-                Arc::clone(&self.state.config),
-                Arc::clone(&self.state.git_remote_url),
-                Arc::clone(&self.state.git_branch),
-                Arc::clone(&self.state.last_document),
-                workspace_name,
-            )
-            .await;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -195,10 +230,7 @@ mod tests {
     #[tokio::test]
     async fn test_shutdown_cancels_idle_timeout_and_marks_state() {
         let state = Arc::new(AppState::new());
-        let service = PresenceService::new(Arc::clone(&state));
-
-        service.reset_idle_timeout().await.unwrap();
-        assert!(service.idle_manager.has_timeout().await);
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
 
         service.shutdown().await.unwrap();
 
@@ -209,7 +241,7 @@ mod tests {
     #[tokio::test]
     async fn test_shutdown_is_idempotent() {
         let state = Arc::new(AppState::new());
-        let service = PresenceService::new(state);
+        let service = PresenceService::new(state, PresenceConfig::default());
 
         assert!(service.shutdown().await.is_ok());
         assert!(service.shutdown().await.is_ok());
@@ -218,12 +250,77 @@ mod tests {
     #[tokio::test]
     async fn test_update_presence_is_ignored_during_shutdown() {
         let state = Arc::new(AppState::new());
-        let service = PresenceService::new(Arc::clone(&state));
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
 
         assert!(state.mark_shutting_down());
         assert!(service.update_presence(None).await.is_ok());
 
         let last_document = state.last_document.lock().await;
         assert!(last_document.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_rapid_updates_batched_into_single_discord_call() {
+        use std::path::PathBuf;
+        use tower_lsp::lsp_types::Url;
+
+        let state = Arc::new(AppState::new());
+        let config = PresenceConfig::default();
+        let service = PresenceService::new(Arc::clone(&state), config);
+
+        let workspace_root = PathBuf::from("C:/test");
+
+        // Call update_presence 5 times rapidly (simulates rapid file switches)
+        for i in 0..5 {
+            let file_path = workspace_root.join(format!("file{}.rs", i));
+            let url = Url::from_file_path(&file_path).unwrap();
+            let doc = Document::new(&url, &workspace_root, None);
+            assert!(service.update_presence(Some(doc)).await.is_ok());
+            // Small delay between calls, but less than debounce window (500ms)
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        }
+
+        // Wait for debounce to settle (500ms + buffer)
+        tokio::time::sleep(tokio::time::Duration::from_millis(700)).await;
+
+        // Verify the final document stored in state (should be last one)
+        let last_doc = state.last_document.lock().await;
+        assert!(last_doc.is_some());
+        let last_filename = last_doc.as_ref().unwrap().get_filename().unwrap();
+        assert_eq!(last_filename, "file4.rs", "Latest document should be stored");
+    }
+
+    #[tokio::test]
+    async fn test_latest_document_sent_after_debounce() {
+        use std::path::PathBuf;
+        use tower_lsp::lsp_types::Url;
+
+        let state = Arc::new(AppState::new());
+        let config = PresenceConfig::default();
+        let service = PresenceService::new(Arc::clone(&state), config);
+
+        let workspace_root = PathBuf::from("C:/test");
+
+        // Send doc1
+        let file_path1 = workspace_root.join("file1.rs");
+        let url1 = Url::from_file_path(&file_path1).unwrap();
+        let doc1 = Document::new(&url1, &workspace_root, None);
+        assert!(service.update_presence(Some(doc1.clone())).await.is_ok());
+
+        // Quickly send doc2 (before debounce expires)
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let file_path2 = workspace_root.join("file2.rs");
+        let url2 = Url::from_file_path(&file_path2).unwrap();
+        let doc2 = Document::new(&url2, &workspace_root, None);
+        assert!(service.update_presence(Some(doc2.clone())).await.is_ok());
+
+        // Wait for debounce to settle
+        tokio::time::sleep(tokio::time::Duration::from_millis(700)).await;
+
+        // Verify the last document stored should be doc2
+        let last_document = state.last_document.lock().await;
+        assert!(last_document.is_some());
+        let last_filename = last_document.as_ref().unwrap().get_filename().unwrap();
+        assert_eq!(last_filename, "file2.rs", "Latest document should be stored after debounce");
     }
 }

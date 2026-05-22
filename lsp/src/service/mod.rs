@@ -17,9 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
+mod file_monitor;
 mod presence_service;
 mod workspace_service;
 
+pub use file_monitor::FileMonitor;
 pub use presence_service::PresenceService;
 pub use workspace_service::WorkspaceService;
 
