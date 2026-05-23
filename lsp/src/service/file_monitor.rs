@@ -23,11 +23,11 @@ impl FileMonitor {
         let current = current_uri.map(|uri| ActiveFile { uri });
         let mut last = self.last_active.lock().await;
 
-        if current != *last {
-            *last = current.clone();
-            current
-        } else {
+        if current == *last {
             None
+        } else {
+            last.clone_from(&current);
+            current
         }
     }
 }
