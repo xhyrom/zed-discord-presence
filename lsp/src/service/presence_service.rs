@@ -18,8 +18,12 @@
  */
 
 use crate::{
-    activity::ActivityManager, config::PresenceConfig, document::Document, error::Result,
-    idle::IdleManager, service::{AppState, FileMonitor},
+    activity::ActivityManager,
+    config::PresenceConfig,
+    document::Document,
+    error::Result,
+    idle::IdleManager,
+    service::{AppState, FileMonitor},
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,9 +83,11 @@ impl PresenceService {
                     warn!("Failed to update Discord presence: {}", e);
                 } else {
                     let total_elapsed = update_start.elapsed();
-                    info!("Discord presence updated in {:.1}ms (debounce delay: {:.0}ms)",
-                          total_elapsed.as_secs_f64() * 1000.0,
-                          debounce_delay.as_secs_f64() * 1000.0);
+                    info!(
+                        "Discord presence updated in {:.1}ms (debounce delay: {:.0}ms)",
+                        total_elapsed.as_secs_f64() * 1000.0,
+                        debounce_delay.as_secs_f64() * 1000.0
+                    );
                 }
             }
 
@@ -220,7 +226,6 @@ impl PresenceService {
 
         Ok(())
     }
-
 }
 
 #[cfg(test)]
@@ -287,7 +292,10 @@ mod tests {
         let last_doc = state.last_document.lock().await;
         assert!(last_doc.is_some());
         let last_filename = last_doc.as_ref().unwrap().get_filename().unwrap();
-        assert_eq!(last_filename, "file4.rs", "Latest document should be stored");
+        assert_eq!(
+            last_filename, "file4.rs",
+            "Latest document should be stored"
+        );
     }
 
     #[tokio::test]
@@ -321,6 +329,9 @@ mod tests {
         let last_document = state.last_document.lock().await;
         assert!(last_document.is_some());
         let last_filename = last_document.as_ref().unwrap().get_filename().unwrap();
-        assert_eq!(last_filename, "file2.rs", "Latest document should be stored after debounce");
+        assert_eq!(
+            last_filename, "file2.rs",
+            "Latest document should be stored after debounce"
+        );
     }
 }

@@ -7,8 +7,10 @@ async fn test_file_switch_detected_within_poll_interval() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let elapsed = start.elapsed();
-    assert!(elapsed < std::time::Duration::from_millis(150),
-            "File switch detection should occur within poll interval (100ms)");
+    assert!(
+        elapsed < std::time::Duration::from_millis(150),
+        "File switch detection should occur within poll interval (100ms)"
+    );
 }
 
 #[tokio::test]
@@ -23,8 +25,11 @@ async fn test_polling_plus_debounce_latency_under_target() {
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     let total_elapsed = start.elapsed();
-    assert!(total_elapsed < std::time::Duration::from_millis(1500),
-            "Total latency (poll + debounce + Discord update) should be under 1.5s: {:?}", total_elapsed);
+    assert!(
+        total_elapsed < std::time::Duration::from_millis(1500),
+        "Total latency (poll + debounce + Discord update) should be under 1.5s: {:?}",
+        total_elapsed
+    );
 }
 
 #[tokio::test]
@@ -40,9 +45,15 @@ async fn test_rapid_file_switches_within_debounce_window() {
 
     // All 5 should fit within debounce window (500ms)
     let total_switch_time = 5 * 50; // 250ms
-    assert!(total_switch_time < 500, "All switches should be within debounce window");
+    assert!(
+        total_switch_time < 500,
+        "All switches should be within debounce window"
+    );
 
     // Debounce ensures only 1 update would be sent (not testable directly without mocking Discord)
     // But we verify the timing concept holds
-    assert_eq!(switches_detected.load(std::sync::atomic::Ordering::SeqCst), 5);
+    assert_eq!(
+        switches_detected.load(std::sync::atomic::Ordering::SeqCst),
+        5
+    );
 }

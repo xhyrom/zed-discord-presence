@@ -19,8 +19,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use config::PresenceConfig;
 use document::Document;
@@ -238,9 +238,15 @@ impl LanguageServer for Backend {
                     if let Some(current_uri) = uri_lock.clone() {
                         drop(uri_lock);
 
-                        if let Some(_changed_file) = file_monitor.check_active_file(Some(current_uri.clone())).await {
+                        if let Some(_changed_file) = file_monitor
+                            .check_active_file(Some(current_uri.clone()))
+                            .await
+                        {
                             let poll_detect_time = std::time::Instant::now();
-                            debug!("Active file changed (polling detected): {} at {:?}", current_uri, poll_detect_time);
+                            debug!(
+                                "Active file changed (polling detected): {} at {:?}",
+                                current_uri, poll_detect_time
+                            );
 
                             if let Ok(url) = tower_lsp::lsp_types::Url::parse(&current_uri) {
                                 let workspace_path = {
@@ -252,7 +258,9 @@ impl LanguageServer for Backend {
                                     let workspace_path = Path::new(&path_str);
                                     let doc = Document::new(&url, workspace_path, None);
 
-                                    if let Err(e) = presence_service.update_presence(Some(doc)).await {
+                                    if let Err(e) =
+                                        presence_service.update_presence(Some(doc)).await
+                                    {
                                         warn!("Failed to update presence on file switch: {}", e);
                                     }
                                 }

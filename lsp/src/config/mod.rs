@@ -19,9 +19,9 @@
 
 pub mod activity;
 mod idle;
+pub mod presence;
 mod rules;
 mod update;
-pub mod presence;
 
 pub use presence::PresenceConfig;
 
