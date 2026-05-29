@@ -116,108 +116,40 @@ impl Backend {
 
         panic!("Failed to resolve workspace path from URI")
     }
-}
 
-#[tower_lsp::async_trait]
-impl LanguageServer for Backend {
-    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        info!("Initializing Discord Presence LSP");
+    async fn setup_git_info(&self, workspace_path: &Path) {
+        let path_str = workspace_path.to_str().unwrap_or("");
+        let clean_path = if cfg!(target_os = "windows") && path_str.starts_with('/') {
+            &path_str[1..]
+        } else {
+            path_str
+        };
 
-        // Set workspace
-        let workspace_path = Self::resolve_workspace_path(&params);
-        info!("Workspace path: {}", workspace_path.display());
+        info!("Checking git repo at: {}", clean_path);
 
-        {
-            let mut workspace = self.app_state.workspace.lock().await;
-            if let Err(e) = workspace.set_workspace(&workspace_path) {
-                error!("Failed to set workspace: {}", e);
-                return Err(tower_lsp::jsonrpc::Error::internal_error());
-            }
-            info!("Workspace set to: {}", workspace.name());
-        }
-
-        // Update config
-        {
-            let mut config = self.app_state.config.lock().await;
-            if let Err(e) = config.update(params.initialization_options) {
-                error!("Failed to update config: {}", e);
-                return Err(tower_lsp::jsonrpc::Error::internal_error());
-            }
-
-            debug!(
-                "Configuration updated: application_id={}, git_integration={}",
-                config.application_id, config.git_integration
-            );
-
-            // Check if workspace is suitable
-            if !config.rules.suitable(workspace_path.to_str().unwrap_or("")) {
-                info!("Workspace not suitable according to rules, exiting");
-                exit(0);
-            }
-        }
-
-        // Set git remote URL
-        {
-            let mut git_remote_url = self.app_state.git_remote_url.lock().await;
-            let path_str = workspace_path.to_str().unwrap_or("");
-
-            // Fix windows path
-            let clean_path = if cfg!(target_os = "windows") && path_str.starts_with('/') {
-                &path_str[1..]
-            } else {
-                path_str
-            };
-
-            info!("Checking git repo at: {}", clean_path);
-
-            let overrides = {
-                let config = self.app_state.config.lock().await;
-                config.git_host_overrides.clone()
-            };
-
-            let remote_url = get_repository_and_remote(clean_path, &overrides);
-
-            if let Some(ref url) = remote_url {
-                info!("Git remote URL found: {}", url);
-            } else {
-                debug!("No git remote URL found at path: {}", clean_path);
-            }
-
-            *git_remote_url = remote_url;
-
-            // Set git branch
-            let mut git_branch = self.app_state.git_branch.lock().await;
-            *git_branch = git::get_current_branch(clean_path);
-            if let Some(ref branch) = *git_branch {
-                info!("Git branch: {}", branch);
-            } else {
-                debug!("No git branch found at path: {}", clean_path);
-            }
-        }
-
-        // Initialize Discord
-        // non-blocking, will retry on first activity update
-        {
+        let overrides = {
             let config = self.app_state.config.lock().await;
-            match self
-                .presence_service
-                .initialize_discord(&config.application_id)
-                .await
-            {
-                Ok(()) => {
-                    info!("Discord client initialized and connected");
-                }
-                Err(e) => {
-                    // Don't fail initialization - connection will be retried on activity update
-                    warn!(
-                        "Discord connection failed during init, will retry on activity: {}",
-                        e
-                    );
-                }
-            }
-        }
+            config.git_host_overrides.clone()
+        };
 
-        // Start polling loop to detect file switches
+        let remote_url = get_repository_and_remote(clean_path, &overrides);
+        if let Some(ref url) = remote_url {
+            info!("Git remote URL found: {}", url);
+        } else {
+            debug!("No git remote URL found at path: {}", clean_path);
+        }
+        *self.app_state.git_remote_url.lock().await = remote_url;
+
+        let branch = git::get_current_branch(clean_path);
+        if let Some(ref b) = branch {
+            info!("Git branch: {}", b);
+        } else {
+            debug!("No git branch found at path: {}", clean_path);
+        }
+        *self.app_state.git_branch.lock().await = branch;
+    }
+
+    fn start_file_polling_loop(&self) {
         let active_doc_uri = Arc::clone(&self.active_doc_uri);
         let app_state = Arc::clone(&self.app_state);
         let file_monitor = self.presence_service.file_monitor().clone();
@@ -233,31 +165,25 @@ impl LanguageServer for Backend {
                     break;
                 }
 
-                // Get current active document URI
                 if let Ok(uri_lock) = active_doc_uri.try_lock() {
                     if let Some(current_uri) = uri_lock.clone() {
                         drop(uri_lock);
 
-                        if let Some(_changed_file) = file_monitor
+                        if file_monitor
                             .check_active_file(Some(current_uri.clone()))
                             .await
+                            .is_some()
                         {
-                            let poll_detect_time = std::time::Instant::now();
-                            debug!(
-                                "Active file changed (polling detected): {} at {:?}",
-                                current_uri, poll_detect_time
-                            );
+                            debug!("Active file changed (polling detected): {}", current_uri);
 
                             if let Ok(url) = tower_lsp::lsp_types::Url::parse(&current_uri) {
                                 let workspace_path = {
                                     let workspace = app_state.workspace.lock().await;
-                                    workspace.path().map(|p| p.to_string())
+                                    workspace.path().map(ToString::to_string)
                                 };
 
                                 if let Some(path_str) = workspace_path {
-                                    let workspace_path = Path::new(&path_str);
-                                    let doc = Document::new(&url, workspace_path, None);
-
+                                    let doc = Document::new(&url, Path::new(&path_str), None);
                                     if let Err(e) =
                                         presence_service.update_presence(Some(doc)).await
                                     {
@@ -270,6 +196,60 @@ impl LanguageServer for Backend {
                 }
             }
         });
+    }
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for Backend {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        info!("Initializing Discord Presence LSP");
+
+        let workspace_path = Self::resolve_workspace_path(&params);
+        info!("Workspace path: {}", workspace_path.display());
+
+        {
+            let mut workspace = self.app_state.workspace.lock().await;
+            if let Err(e) = workspace.set_workspace(&workspace_path) {
+                error!("Failed to set workspace: {}", e);
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+            info!("Workspace set to: {}", workspace.name());
+        }
+
+        {
+            let mut config = self.app_state.config.lock().await;
+            if let Err(e) = config.update(params.initialization_options) {
+                error!("Failed to update config: {}", e);
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+            debug!(
+                "Configuration updated: application_id={}, git_integration={}",
+                config.application_id, config.git_integration
+            );
+            if !config.rules.suitable(workspace_path.to_str().unwrap_or("")) {
+                info!("Workspace not suitable according to rules, exiting");
+                exit(0);
+            }
+        }
+
+        self.setup_git_info(&workspace_path).await;
+
+        {
+            let config = self.app_state.config.lock().await;
+            match self
+                .presence_service
+                .initialize_discord(&config.application_id)
+                .await
+            {
+                Ok(()) => info!("Discord client initialized and connected"),
+                Err(e) => warn!(
+                    "Discord connection failed during init, will retry on activity: {}",
+                    e
+                ),
+            }
+        }
+
+        self.start_file_polling_loop();
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {

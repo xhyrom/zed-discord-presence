@@ -27,7 +27,7 @@ async fn test_polling_plus_debounce_latency_under_target() {
     let total_elapsed = start.elapsed();
     assert!(
         total_elapsed < std::time::Duration::from_millis(1500),
-        "Total latency (poll + debounce + Discord update) should be under 1.5s: {:?}",
+        "Total latency (poll + debounce + Discord update) should be under 1.5s: {:#?}",
         total_elapsed
     );
 }
