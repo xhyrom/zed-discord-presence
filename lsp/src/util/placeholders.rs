@@ -17,7 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use crate::{config::Configuration, languages::get_language, Document};
+use crate::{
+    config::{workspace_override::HideFields, Configuration},
+    languages::get_language,
+    Document,
+};
 
 macro_rules! replace_with_capitalization {
     ($text:expr, $($placeholder:expr => $value:expr),*) => {{
@@ -46,6 +50,7 @@ pub struct Placeholders<'a> {
     line_number: Option<u32>,
     git_branch: Option<String>,
     file_size: Option<String>,
+    hide_line_number: bool,
 }
 
 impl<'a> Placeholders<'a> {
@@ -91,7 +96,26 @@ impl<'a> Placeholders<'a> {
             line_number,
             git_branch,
             file_size,
+            hide_line_number: false,
         }
+    }
+
+    /// Returns a modified copy with the fields specified by `hide` cleared to
+    /// empty strings (or suppressed entirely for line number).
+    pub fn with_hidden_fields(mut self, hide: &HideFields) -> Self {
+        if hide.filename {
+            self.filename = self.filename.map(|_| String::new());
+        }
+        if hide.file_path {
+            self.relative_file_path = self.relative_file_path.map(|_| String::new());
+            self.folder_and_file = self.folder_and_file.map(|_| String::new());
+            self.directory_name = self.directory_name.map(|_| String::new());
+            self.full_directory_name = self.full_directory_name.map(|_| String::new());
+        }
+        if hide.line_number {
+            self.hide_line_number = true;
+        }
+        self
     }
 
     pub fn replace(&self, text: &str) -> String {
@@ -108,9 +132,12 @@ impl<'a> Placeholders<'a> {
             .as_deref()
             .unwrap_or("full_directory_name");
 
-        let line_number_str = self
-            .line_number
-            .map_or_else(|| 1.to_string(), |n| n.saturating_add(1).to_string());
+        let line_number_str = if self.hide_line_number {
+            String::new()
+        } else {
+            self.line_number
+                .map_or_else(|| 1.to_string(), |n| n.saturating_add(1).to_string())
+        };
 
         let git_branch = self.git_branch.as_deref().unwrap_or("git_branch");
         let file_size = self.file_size.as_deref().unwrap_or("file_size");
@@ -150,6 +177,7 @@ mod tests {
             line_number: Some(41), // 0-indexed, so will display as 42
             git_branch: Some("main".to_string()),
             file_size: Some("1.2 KB".to_string()),
+            hide_line_number: false,
         };
 
         let result = placeholders.replace("Working on {filename} in {workspace}");

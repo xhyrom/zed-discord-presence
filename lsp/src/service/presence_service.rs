@@ -161,21 +161,33 @@ impl PresenceService {
         let config = state.config.lock().await;
         let workspace = state.workspace.lock().await;
         let git_branch = state.git_branch.lock().await.clone();
+        let git_remote_url = state.git_remote_url.lock().await.clone();
 
         Ok(ActivityManager::build_activity_fields(
             doc,
             &config,
             workspace.name(),
+            workspace.path().unwrap_or(""),
             git_branch,
+            git_remote_url.as_deref(),
         ))
     }
 
     async fn get_git_url_if_enabled_internal(state: &Arc<AppState>) -> Result<Option<String>> {
         let config = state.config.lock().await;
+        let git_remote_url = state.git_remote_url.lock().await.clone();
 
-        if config.git_integration {
-            let git_remote_url = state.git_remote_url.lock().await;
-            Ok(git_remote_url.clone())
+        let workspace_override = {
+            let workspace = state.workspace.lock().await;
+            config
+                .find_workspace_override(workspace.path().unwrap_or(""), git_remote_url.as_deref())
+                .map(|ov| ov.effective_git_integration(config.git_integration))
+        };
+
+        let git_enabled = workspace_override.unwrap_or(config.git_integration);
+
+        if git_enabled {
+            Ok(git_remote_url)
         } else {
             Ok(None)
         }

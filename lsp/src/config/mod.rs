@@ -22,6 +22,7 @@ mod idle;
 pub mod presence;
 mod rules;
 mod update;
+pub mod workspace_override;
 
 pub use presence::PresenceConfig;
 
@@ -31,6 +32,7 @@ pub use idle::{Idle, IdleAction};
 pub use rules::Rules;
 use tracing::{debug, error, info, instrument};
 use update::UpdateFromJson;
+pub use workspace_override::WorkspaceOverride;
 
 use serde_json::{Map, Value};
 
@@ -50,6 +52,8 @@ pub struct Configuration {
     pub git_integration: bool,
     pub git_host_overrides: HashMap<String, String>,
     pub languages: HashMap<String, Activity>,
+    /// Per-workspace presence overrides, evaluated in order (first match wins).
+    pub overrides: Vec<WorkspaceOverride>,
 }
 
 impl Default for Configuration {
@@ -63,6 +67,7 @@ impl Default for Configuration {
             git_integration: true,
             git_host_overrides: HashMap::default(),
             languages: HashMap::default(),
+            overrides: Vec::default(),
         }
     }
 }
@@ -112,11 +117,25 @@ impl UpdateFromJson for Configuration {
             }
         }
 
+        self.overrides = workspace_override::parse_workspace_overrides(json);
+
         Ok(())
     }
 }
 
 impl Configuration {
+    /// Returns the first workspace override that matches `workspace_path` and
+    /// `git_remote_url`, or `None` if no override applies.
+    pub fn find_workspace_override(
+        &self,
+        workspace_path: &str,
+        git_remote_url: Option<&str>,
+    ) -> Option<&WorkspaceOverride> {
+        self.overrides
+            .iter()
+            .find(|ov| ov.matches(workspace_path, git_remote_url))
+    }
+
     #[instrument(skip(self, options))]
     pub fn update(&mut self, options: Option<Value>) -> Result<()> {
         if let Some(options) = options {
