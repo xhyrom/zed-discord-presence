@@ -31,7 +31,7 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentHighlight, DocumentHighlightParams, InitializeParams, InitializeResult,
-    InitializedParams, MessageType, OneOf, SaveOptions, ServerCapabilities, ServerInfo,
+    InitializedParams, MessageType, SaveOptions, ServerCapabilities, ServerInfo,
     TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
     TextDocumentSyncSaveOptions, WorkspaceServerCapabilities,
 };
@@ -267,7 +267,7 @@ impl LanguageServer for Backend {
                         ..Default::default()
                     },
                 )),
-                document_highlight_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(tower_lsp::lsp_types::OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     file_operations: None,
                     workspace_folders: None,
