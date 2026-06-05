@@ -26,6 +26,8 @@ pub mod workspace_override;
 
 pub use presence::PresenceConfig;
 
+pub use presence::PresenceConfig;
+
 use std::collections::HashMap;
 
 pub use idle::{Idle, IdleAction};
