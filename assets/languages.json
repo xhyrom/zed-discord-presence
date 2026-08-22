@@ -407,5 +407,6 @@
   "regex:\\.(tfvars|tf)$": "terraform",
   "regex:\\.mojo$": "mojo",
   ".🔥": "mojo",
-  ".zs": "zs"
+  ".zs": "zs",
+  ".slint": "slint"
 }
