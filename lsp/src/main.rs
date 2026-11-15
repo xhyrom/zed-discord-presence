@@ -243,13 +243,12 @@ impl LanguageServer for Backend {
                 .initialize_discord(&config.application_id)
                 .await
             {
-                Ok(()) => info!("Discord client initialized and connected"),
-                Err(e) => warn!(
-                    "Discord connection failed during init, will retry on activity: {}",
-                    e
-                ),
+                Ok(()) => info!("Discord client created; connecting in the background"),
+                Err(e) => warn!("Failed to create the Discord client: {}", e),
             }
         }
+        // Connect without blocking initialize; retries until Discord is up.
+        self.presence_service.start_background_connect();
 
         self.start_file_polling_loop();
 

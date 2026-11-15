@@ -39,6 +39,8 @@ const MAX_RETRIES: u32 = 5;
 const INITIAL_DELAY_MS: u64 = 500;
 /// Maximum delay between retries in milliseconds
 const MAX_DELAY_MS: u64 = 10_000;
+/// Upper bound for opening the IPC pipe and completing the handshake.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// An identical activity is skipped while its last send is younger than this.
 /// Once older, it is sent again to re-assert the presence (e.g. after a Discord
 /// restart) and to surface a broken pipe through the failed write.
@@ -229,16 +231,35 @@ impl Discord {
 
         debug!("Connecting to Discord IPC");
 
-        let mut client = self.get_client().await?;
-        client.connect().map_err(|e| {
-            self.connected.store(false, Ordering::SeqCst);
-            error!("Failed to connect to Discord IPC: {}", e);
-            crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {e}"))
-        })?;
+        let client = Arc::clone(self.client.as_ref().ok_or_else(|| {
+            crate::error::PresenceError::Discord("Discord client not initialized".to_string())
+        })?);
 
-        self.connected.store(true, Ordering::SeqCst);
-        info!("Successfully connected to Discord IPC");
-        Ok(())
+        // The crate's connect is blocking pipe IO (open + handshake read). Run
+        // it on the blocking pool so it never stalls a runtime worker, and
+        // bound it, including the wait for the client lock. On timeout the
+        // blocking call may hold the client lock until it returns; later
+        // attempts then time out too instead of hanging.
+        let attempt = tokio::time::timeout(CONNECT_TIMEOUT, async move {
+            let mut client = client.lock_owned().await;
+            tokio::task::spawn_blocking(move || client.connect()).await
+        })
+        .await;
+
+        let failure = match attempt {
+            Ok(Ok(Ok(()))) => {
+                self.connected.store(true, Ordering::SeqCst);
+                info!("Successfully connected to Discord IPC");
+                return Ok(());
+            }
+            Ok(Ok(Err(e))) => format!("Failed to connect to Discord IPC: {e}"),
+            Ok(Err(e)) => format!("Discord IPC connect task failed: {e}"),
+            Err(_) => format!("Timed out connecting to Discord IPC after {CONNECT_TIMEOUT:?}"),
+        };
+
+        self.connected.store(false, Ordering::SeqCst);
+        error!("{}", failure);
+        Err(crate::error::PresenceError::Discord(failure))
     }
 
     /// Connects to Discord IPC with exponential backoff retry.
@@ -573,6 +594,12 @@ impl Discord {
             }
         }
     }
+
+    /// Sets the connection flag without a real Discord client.
+    #[cfg(test)]
+    pub(crate) fn set_connected_for_test(&self, connected: bool) {
+        self.connected.store(connected, Ordering::SeqCst);
+    }
 }
 
 #[cfg(test)]
@@ -780,5 +807,20 @@ mod tests {
         assert!(gate.pending.is_none());
         assert!(gate.flush_at.is_none());
         assert!(gate.last_activity.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_connect_times_out_instead_of_waiting_forever() {
+        let mut discord = Discord::new(shutdown_signal(false));
+        discord.create_client("0").unwrap();
+
+        // Holding the client lock simulates a handshake that never returns.
+        let stuck_handshake = discord.get_client().await.unwrap();
+
+        let error = discord.connect().await.unwrap_err();
+
+        assert!(error.to_string().contains("Timed out"));
+        assert!(!discord.is_connected());
+        drop(stuck_handshake);
     }
 }
