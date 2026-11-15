@@ -37,6 +37,9 @@ const OWNERSHIP_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 const BACKGROUND_CONNECT_INITIAL_DELAY: Duration = Duration::from_secs(1);
 /// Longest wait between background connect attempts.
 const BACKGROUND_CONNECT_MAX_DELAY: Duration = Duration::from_secs(30);
+/// How often the owner re-asserts its presence. With the 20 s re-assert
+/// window, an unchanged activity is written at least every 30-35 s.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 /// How long a previous owner waits for the new owner's first send before
 /// clearing its own activity anyway.
 const RELEASE_FALLBACK: Duration = Duration::from_secs(3);
@@ -383,6 +386,63 @@ impl PresenceService {
                 warn!("Failed to send the latest presence after connecting: {}", e);
             }
         });
+    }
+
+    /// Spawns the owner heartbeat: every `HEARTBEAT_INTERVAL` the owner
+    /// re-asserts the last requested activity. A closed Discord shows up as a
+    /// failed write, and the presence comes back once Discord is reopened,
+    /// without any editor event. Non-owners do nothing.
+    pub fn start_heartbeat(&self) {
+        let state = Arc::clone(&self.state);
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            // The first tick completes immediately; start one interval later.
+            interval.tick().await;
+
+            loop {
+                interval.tick().await;
+                if state.is_shutting_down() {
+                    debug!("Heartbeat shutting down");
+                    break;
+                }
+                if state.owner.is_owner() {
+                    Self::heartbeat(&state).await;
+                }
+            }
+        });
+    }
+
+    /// Re-asserts the presence once. It does not claim ownership, rearm the
+    /// idle timer or touch the pending document. When disconnected it makes a
+    /// single connect attempt (bounded by the connect timeout, one log line if
+    /// Discord is still closed) and leaves retries to the next tick. If the
+    /// write finds the connection dead, it reconnects once and sends again.
+    async fn heartbeat(state: &AppState) {
+        let mut discord = state.discord.lock().await;
+        if !discord.has_requested_activity() {
+            return;
+        }
+
+        for attempt in 1..=2 {
+            if !discord.is_connected() && discord.connect().await.is_err() {
+                debug!("Heartbeat: Discord not reachable, retrying on the next tick");
+                return;
+            }
+
+            discord.set_start_timestamp(Duration::from_millis(state.owner.session_start_ms()));
+            match discord.reassert().await {
+                Ok(()) => return,
+                Err(e) if attempt == 1 && !discord.is_connected() => {
+                    debug!("Heartbeat write failed ({}), reconnecting once", e);
+                }
+                Err(e) => {
+                    warn!("Heartbeat could not re-assert the presence: {}", e);
+                    return;
+                }
+            }
+        }
     }
 
     /// Spawns the task that releases this instance's Discord connection when
@@ -1112,6 +1172,89 @@ mod tests {
             capture.count("Another instance owns the presence, skipping Discord activity update")
                 > 0
         );
+        state.owner.remove_record();
+    }
+
+    /// Logged each time the heartbeat re-asserts the requested activity.
+    const REASSERTING: &str = "Re-asserting the requested activity";
+
+    /// Requests an activity on an instance without an IPC client: the write
+    /// fails like on a closed Discord and leaves the instance disconnected,
+    /// with the activity kept for the heartbeat.
+    async fn request_activity_on_a_dead_connection(state: &AppState) {
+        let mut discord = state.discord.lock().await;
+        discord.set_connected_for_test(true);
+        let fields = crate::activity::ActivityFields {
+            state: Some("Working on a.rs".to_string()),
+            details: Some("In workspace".to_string()),
+            large_image: None,
+            large_text: None,
+            small_image: None,
+            small_text: None,
+        };
+        assert!(discord
+            .change_activity_with_reconnect(fields, None)
+            .await
+            .is_err());
+        assert!(!discord.is_connected());
+        assert!(discord.has_requested_activity());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_owner_heartbeat_resends_after_a_disconnect() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        request_activity_on_a_dead_connection(&state).await;
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        service.start_heartbeat();
+
+        // Discord still closed: the single connect attempt fails, no send.
+        tokio::time::sleep(HEARTBEAT_INTERVAL + Duration::from_secs(1)).await;
+        assert_eq!(capture.count(REASSERTING), 0);
+
+        // Discord reachable again (simulated): the next tick re-asserts.
+        state.discord.lock().await.set_connected_for_test(true);
+        tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+
+        assert_eq!(capture.count(REASSERTING), 1);
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_non_owner_heartbeat_sends_nothing() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        request_activity_on_a_dead_connection(&state).await;
+        state.discord.lock().await.set_connected_for_test(true);
+        // The live test process owns the presence now.
+        state.owner.set_record_owner(std::process::id());
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        service.start_heartbeat();
+
+        tokio::time::sleep(HEARTBEAT_INTERVAL * 3).await;
+
+        assert_eq!(capture.count(REASSERTING), 0);
+        assert!(state.discord.lock().await.is_connected(), "Nothing written");
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_heartbeat_does_not_rearm_idle_or_touch_the_last_document() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        request_activity_on_a_dead_connection(&state).await;
+        state.discord.lock().await.set_connected_for_test(true);
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        service.start_heartbeat();
+
+        tokio::time::sleep(HEARTBEAT_INTERVAL + Duration::from_secs(1)).await;
+
+        assert_eq!(capture.count(REASSERTING), 1, "The heartbeat ran");
+        assert!(
+            !service.idle_manager.has_timeout().await,
+            "Idle not rearmed"
+        );
+        assert!(state.last_document.lock().await.is_none());
         state.owner.remove_record();
     }
 }

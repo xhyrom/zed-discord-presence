@@ -203,6 +203,8 @@ impl LanguageServer for Backend {
         }
         // Connect without blocking initialize; retries until Discord is up.
         self.presence_service.start_background_connect();
+        // Keeps the owner's presence alive across Discord restarts.
+        self.presence_service.start_heartbeat();
 
         self.presence_service.start_ownership_watch();
 

@@ -176,6 +176,9 @@ pub struct Discord {
     connected: Arc<AtomicBool>,
     shutting_down: Arc<AtomicBool>,
     send_gate: Arc<StdMutex<SendGate>>,
+    /// Last activity requested through `change_activity_with_reconnect`. Kept
+    /// across failed writes, so the heartbeat can send it again.
+    requested: Option<ActivityKey>,
 }
 
 impl Discord {
@@ -191,6 +194,7 @@ impl Discord {
             connected: Arc::new(AtomicBool::new(false)),
             shutting_down,
             send_gate: Arc::default(),
+            requested: None,
         }
     }
 
@@ -382,6 +386,7 @@ impl Discord {
     #[instrument(skip(self))]
     pub async fn clear_activity(&mut self) -> Result<()> {
         debug!("Clearing Discord activity");
+        self.requested = None;
 
         {
             // A deferred send must not overwrite the cleared presence.
@@ -607,6 +612,8 @@ impl Discord {
             return Err(Self::shutdown_error("update Discord activity"));
         }
 
+        self.requested = Some((activity_fields.clone(), git_remote_url.clone()));
+
         // If not connected, try to reconnect first
         if !self.is_connected() {
             warn!("Discord not connected, attempting reconnection...");
@@ -643,6 +650,7 @@ impl Discord {
     pub async fn release(&mut self) -> Result<()> {
         if !self.is_connected() {
             // Nothing to clear, but a deferred send must not go out.
+            self.requested = None;
             let mut gate = lock_gate(&self.send_gate);
             gate.cancel_pending();
             gate.forget_last_activity();
@@ -652,6 +660,26 @@ impl Discord {
         info!("Clearing the activity of a non-owner instance");
         // clear_activity also cancels pending sends and forgets the last activity.
         self.clear_activity().await
+    }
+
+    /// Whether there is a requested activity the heartbeat can re-assert.
+    pub fn has_requested_activity(&self) -> bool {
+        self.requested.is_some()
+    }
+
+    /// Sends the last requested activity again through the normal rules: it
+    /// is skipped if identical and sent less than `REASSERT_INTERVAL` ago,
+    /// otherwise written, so a dead connection shows up as a failed write.
+    pub async fn reassert(&mut self) -> Result<()> {
+        let Some((fields, git_remote_url)) = self.requested.clone() else {
+            return Ok(());
+        };
+        debug!(
+            "Re-asserting the requested activity (pid {})",
+            std::process::id()
+        );
+        self.change_activity_with_reconnect(fields, git_remote_url)
+            .await
     }
 
     /// Sets the connection flag without a real Discord client.
@@ -912,6 +940,34 @@ mod tests {
         assert!(gate.pending.is_none());
         assert!(gate.flush_at.is_none());
         assert!(gate.last_activity.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_reassert_skips_identical_activity_within_the_reassert_interval() {
+        // Connected flag set but no IPC client: a skipped re-assert writes
+        // nothing and stays connected, an attempted write fails and disconnects.
+        let mut discord = Discord::new(shutdown_signal(false));
+        discord.connected.store(true, Ordering::SeqCst);
+        let coding = activity_with_state("coding");
+        discord.requested = Some(coding.clone());
+        lock_gate(&discord.send_gate).record_sent(coding, Instant::now());
+
+        // One heartbeat tick later: identical and sent < 20 s ago.
+        tokio::time::advance(Duration::from_secs(15)).await;
+        assert!(discord.reassert().await.is_ok());
+        assert!(discord.is_connected(), "Nothing was written");
+
+        // Past REASSERT_INTERVAL: written again, and the write finds it dead.
+        tokio::time::advance(Duration::from_secs(6)).await;
+        assert!(discord.reassert().await.is_err());
+        assert!(
+            !discord.is_connected(),
+            "A failed write marks it disconnected"
+        );
+        assert!(
+            discord.has_requested_activity(),
+            "Kept for the next heartbeat"
+        );
     }
 
     #[tokio::test(start_paused = true)]
