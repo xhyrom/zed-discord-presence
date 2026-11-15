@@ -21,6 +21,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time;
@@ -31,19 +32,22 @@ use crate::{
     config::{Configuration, IdleAction},
     discord::Discord,
     document::Document,
+    service::PresenceOwner,
 };
 
 #[derive(Debug)]
 pub struct IdleManager {
     handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     shutting_down: Arc<AtomicBool>,
+    owner: Arc<PresenceOwner>,
 }
 
 impl IdleManager {
-    pub fn new(shutting_down: Arc<AtomicBool>) -> Self {
+    pub fn new(shutting_down: Arc<AtomicBool>, owner: Arc<PresenceOwner>) -> Self {
         Self {
             handle: Arc::new(Mutex::new(None)),
             shutting_down,
+            owner,
         }
     }
 
@@ -84,6 +88,7 @@ impl IdleManager {
         };
 
         let shutting_down = Arc::clone(&self.shutting_down);
+        let owner = Arc::clone(&self.owner);
 
         // Spawn new timeout task
         let handle = tokio::spawn(async move {
@@ -91,6 +96,11 @@ impl IdleManager {
 
             if shutting_down.load(Ordering::SeqCst) {
                 debug!("Idle timeout fired during shutdown, skipping idle action");
+                return;
+            }
+
+            if !owner.is_owner() {
+                debug!("Another instance owns the presence, skipping idle action");
                 return;
             }
 
@@ -104,6 +114,14 @@ impl IdleManager {
                     }
                 }
                 IdleAction::ChangeActivity => {
+                    // Same shared session start as the normal update path, so
+                    // the idle send never carries this process's own start.
+                    discord_guard
+                        .set_start_timestamp(Duration::from_millis(owner.session_start_ms()));
+                    debug!(
+                        "Idle action: sending the idle activity (pid {})",
+                        std::process::id()
+                    );
                     let doc = last_document.lock().await;
                     let doc = doc.as_ref();
 
@@ -152,7 +170,8 @@ mod tests {
     #[tokio::test]
     async fn test_cancel_timeout_clears_handle() {
         let state = Arc::new(AppState::new());
-        let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
+        let idle_manager =
+            IdleManager::new(Arc::clone(&state.shutting_down), Arc::clone(&state.owner));
 
         idle_manager
             .reset_timeout(
@@ -175,7 +194,8 @@ mod tests {
     #[tokio::test]
     async fn test_reset_timeout_is_skipped_during_shutdown() {
         let state = Arc::new(AppState::new());
-        let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
+        let idle_manager =
+            IdleManager::new(Arc::clone(&state.shutting_down), Arc::clone(&state.owner));
 
         assert!(state.mark_shutting_down());
 
@@ -191,5 +211,34 @@ mod tests {
             .await;
 
         assert!(!idle_manager.has_timeout().await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_idle_send_uses_the_shared_session_start() {
+        let state = Arc::new(AppState::new());
+        state.config.lock().await.idle.timeout = Duration::from_secs(1);
+        // A start the idle send must replace with the shared session start.
+        state
+            .discord
+            .lock()
+            .await
+            .set_start_timestamp(Duration::from_millis(1));
+        let idle_manager =
+            IdleManager::new(Arc::clone(&state.shutting_down), Arc::clone(&state.owner));
+
+        idle_manager
+            .reset_timeout(
+                Arc::clone(&state.discord),
+                Arc::clone(&state.config),
+                Arc::clone(&state.git_remote_url),
+                Arc::clone(&state.git_branch),
+                Arc::clone(&state.last_document),
+                "workspace".to_string(),
+            )
+            .await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let session = Duration::from_millis(state.owner.session_start_ms());
+        assert_eq!(state.discord.lock().await.start_timestamp(), session);
     }
 }

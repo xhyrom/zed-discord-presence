@@ -18,21 +18,78 @@
  */
 
 use crate::{
-    activity::ActivityManager, config::PresenceConfig, document::Document, error::Result,
-    idle::IdleManager, service::AppState,
+    activity::ActivityManager,
+    config::PresenceConfig,
+    document::Document,
+    error::Result,
+    idle::IdleManager,
+    service::{AppState, OwnershipCheck},
 };
 use std::sync::{Arc, Mutex as StdMutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::time::Instant;
+use tokio::time::{Instant, MissedTickBehavior};
 use tracing::{debug, info, warn};
 
+/// How often each instance checks whether it still owns the presence.
+const OWNERSHIP_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 /// First wait between background connect attempts; doubles after each failure.
 const BACKGROUND_CONNECT_INITIAL_DELAY: Duration = Duration::from_secs(1);
 /// Longest wait between background connect attempts.
 const BACKGROUND_CONNECT_MAX_DELAY: Duration = Duration::from_secs(30);
+/// How long a previous owner waits for the new owner's first send before
+/// clearing its own activity anyway.
+const RELEASE_FALLBACK: Duration = Duration::from_secs(3);
 
-/// Leading-edge throttle state for presence updates (see `update_presence`).
+/// Tracks ownership checks to decide when this instance should release.
+#[derive(Debug)]
+struct OwnershipWatch {
+    was_owner: bool,
+    /// Set while waiting for the new owner to send; release no later than this.
+    release_deadline: Option<Instant>,
+}
+
+impl OwnershipWatch {
+    fn new(is_owner: bool) -> Self {
+        Self {
+            was_owner: is_owner,
+            release_deadline: None,
+        }
+    }
+
+    /// Records a check and returns true when this instance should release
+    /// now: after losing ownership, once the new owner has sent or the
+    /// fallback timeout has expired. Returns true at most once per loss.
+    fn should_release(&mut self, check: OwnershipCheck, now: Instant) -> bool {
+        if check.is_owner {
+            self.mark_owner();
+            return false;
+        }
+
+        if self.was_owner {
+            self.was_owner = false;
+            self.release_deadline = Some(now + RELEASE_FALLBACK);
+        }
+
+        let Some(deadline) = self.release_deadline else {
+            return false;
+        };
+        if check.owner_has_sent || now >= deadline {
+            self.release_deadline = None;
+            return true;
+        }
+        false
+    }
+
+    /// Ownership came back before the release ran: keep watching as owner, so
+    /// the next loss is detected again.
+    fn mark_owner(&mut self) {
+        self.was_owner = true;
+        self.release_deadline = None;
+    }
+}
+
+/// Leading-edge throttle state for presence updates (see `schedule_update`).
 #[derive(Debug, Default)]
 struct Throttle {
     /// When the last update was dispatched.
@@ -52,7 +109,10 @@ pub struct PresenceService {
 
 impl PresenceService {
     pub fn new(state: Arc<AppState>, config: PresenceConfig) -> Self {
-        let idle_manager = Arc::new(IdleManager::new(Arc::clone(&state.shutting_down)));
+        let idle_manager = Arc::new(IdleManager::new(
+            Arc::clone(&state.shutting_down),
+            Arc::clone(&state.owner),
+        ));
 
         Self {
             state,
@@ -63,10 +123,21 @@ impl PresenceService {
         }
     }
 
-    /// Leading-edge throttle: if nothing was dispatched within the throttle
-    /// window, the update is sent at once; otherwise the latest pending update
-    /// is sent when the window ends.
     pub async fn update_presence(&self, doc: Option<Document>) -> Result<()> {
+        self.schedule_update(doc, false).await
+    }
+
+    /// Like `update_presence`, but ignores an open throttle window. Used for
+    /// the first event after this instance gains ownership, so the new owner
+    /// sends at once and the previous owner can clear its activity sooner.
+    pub async fn update_presence_now(&self, doc: Option<Document>) -> Result<()> {
+        self.schedule_update(doc, true).await
+    }
+
+    /// Leading-edge throttle: if nothing was dispatched within the throttle
+    /// window (or `immediate` is set), the update is sent at once; otherwise
+    /// the latest pending update is sent when the window ends.
+    async fn schedule_update(&self, doc: Option<Document>, immediate: bool) -> Result<()> {
         // The latest event always wins: the next send takes this document.
         *self.pending_doc.lock().await = doc;
 
@@ -77,7 +148,7 @@ impl PresenceService {
             .map(|last| now.saturating_duration_since(last));
 
         match since_last {
-            Some(elapsed) if elapsed < self.update_throttle => {
+            Some(elapsed) if !immediate && elapsed < self.update_throttle => {
                 // Inside the window: one trailing send at its end picks up
                 // whatever is pending by then.
                 if throttle.trailing.is_none() {
@@ -86,7 +157,11 @@ impl PresenceService {
                 }
             }
             _ => {
-                // Leading edge: send now.
+                // Leading edge: send now. A waiting trailing send would only
+                // repeat this document.
+                if let Some(trailing) = throttle.trailing.take() {
+                    trailing.abort();
+                }
                 throttle.last_dispatch = Some(now);
                 drop(throttle);
                 self.spawn_send(None);
@@ -114,8 +189,8 @@ impl PresenceService {
             }
 
             // Take it in its own statement: in edition 2021 a lock guard in an
-            // `if let` scrutinee lives until the end of the block, which would
-            // make every update_presence call wait for the whole Discord send.
+            // `if let` scrutinee lives until the end of the block, which made
+            // every update_presence call wait for the whole Discord send.
             let doc = pending_doc.lock().await.take();
             let Some(doc) = doc else {
                 return;
@@ -174,6 +249,11 @@ impl PresenceService {
             return Ok(());
         }
 
+        if !state.owner.is_owner() {
+            debug!("Another instance owns the presence, skipping Discord activity update");
+            return Ok(());
+        }
+
         // Build and set activity
         let activity_fields = Self::build_activity_fields_internal(state, doc.as_ref()).await?;
         let git_url = Self::get_git_url_if_enabled_internal(state).await?;
@@ -186,10 +266,23 @@ impl PresenceService {
 
         let mut discord = state.discord.lock().await;
 
-        debug!("Sending presence update");
+        // All instances share one session start, so the elapsed timer does
+        // not jump when ownership moves to another instance.
+        let session_ms = state.owner.session_start_ms();
+        debug!(
+            "Using shared session start {} ms as timestamps.start (pid {})",
+            session_ms,
+            std::process::id()
+        );
+        discord.set_start_timestamp(Duration::from_millis(session_ms));
         discord
             .change_activity_with_reconnect(activity_fields, git_url)
             .await?;
+
+        if discord.has_activity() {
+            // Lets the previous owner clear its own activity now.
+            state.owner.mark_sent();
+        }
 
         Ok(())
     }
@@ -283,11 +376,58 @@ impl PresenceService {
                 return;
             }
 
-            info!("Discord is reachable; resending the latest presence");
+            // perform_update_internal skips the send unless this instance owns
+            // the presence, so a non-owner that reconnects stays silent.
+            info!("Discord is reachable; resending the latest presence if this instance owns it");
             if let Err(e) = Self::perform_update_internal(&state, &idle_manager, doc).await {
                 warn!("Failed to send the latest presence after connecting: {}", e);
             }
         });
+    }
+
+    /// Spawns the task that releases this instance's Discord connection when
+    /// another instance takes over the presence. While its connection stays
+    /// open, Discord keeps showing its activity and masks the owner's.
+    pub fn start_ownership_watch(&self) {
+        let state = Arc::clone(&self.state);
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(OWNERSHIP_CHECK_INTERVAL);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            let mut watch = OwnershipWatch::new(state.owner.is_owner());
+
+            loop {
+                interval.tick().await;
+                if state.is_shutting_down() {
+                    debug!("Ownership watch shutting down");
+                    break;
+                }
+
+                if watch.should_release(state.owner.check(), Instant::now())
+                    && !Self::release_presence(&state).await
+                {
+                    watch.mark_owner();
+                }
+            }
+        });
+    }
+
+    /// Releases this instance's presence. Returns false, without releasing, if
+    /// ownership came back (or shutdown started) while waiting for the lock.
+    async fn release_presence(state: &AppState) -> bool {
+        let mut discord = state.discord.lock().await;
+
+        // A user event may have reclaimed ownership while this task waited:
+        // releasing now would drop the update this instance just sent.
+        if state.owner.is_owner() || state.is_shutting_down() {
+            return false;
+        }
+
+        match discord.release().await {
+            Ok(()) => info!("Released Discord presence: another instance owns it"),
+            Err(e) => warn!("Failed to release Discord presence: {}", e),
+        }
+        true
     }
 
     pub async fn shutdown(&self) -> Result<()> {
@@ -302,12 +442,18 @@ impl PresenceService {
         let mut discord = self.state.discord.lock().await;
         let mut first_error = None;
 
-        if let Err(error) = discord.clear_activity().await {
-            warn!(
-                "Failed to clear Discord activity during shutdown: {}",
-                error
-            );
-            first_error = Some(error);
+        // Clearing from a background instance could wipe the presence the
+        // owning instance just set, so only the owner clears on shutdown.
+        if self.state.owner.is_owner() {
+            if let Err(error) = discord.clear_activity().await {
+                warn!(
+                    "Failed to clear Discord activity during shutdown: {}",
+                    error
+                );
+                first_error = Some(error);
+            }
+        } else {
+            debug!("Another instance owns the presence, not clearing it on shutdown");
         }
 
         if let Err(error) = discord.kill().await {
@@ -328,6 +474,8 @@ impl PresenceService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::owner::dead_test_pid;
+    use crate::service::PresenceOwner;
 
     /// Absolute workspace root for test documents.
     ///
@@ -513,6 +661,32 @@ mod tests {
         );
     }
 
+    /// Logged once per release of this instance's presence.
+    const RELEASED: &str = "Released Discord presence";
+    /// PID assumed not to belong to any live process; used as "this instance".
+    const THIS_PID: u32 = u32::MAX - 11;
+    /// Logged at the start of every `Discord::clear_activity` call.
+    const CLEARED: &str = "Clearing Discord activity";
+
+    const OWNED: OwnershipCheck = OwnershipCheck {
+        is_owner: true,
+        owner_has_sent: true,
+    };
+    const OWNER_HAS_SENT: OwnershipCheck = OwnershipCheck {
+        is_owner: false,
+        owner_has_sent: true,
+    };
+    const OWNER_NOT_SENT: OwnershipCheck = OwnershipCheck {
+        is_owner: false,
+        owner_has_sent: false,
+    };
+
+    fn test_doc(name: &str) -> Document {
+        let workspace_root = test_workspace_root();
+        let url = tower_lsp::lsp_types::Url::from_file_path(workspace_root.join(name)).unwrap();
+        Document::new(&url, &workspace_root, None)
+    }
+
     fn capture_logs() -> (LogCapture, tracing::subscriber::DefaultGuard) {
         crate::test_support::keep_callsites_interested();
         let capture = LogCapture::default();
@@ -525,62 +699,168 @@ mod tests {
         (capture, tracing::subscriber::set_default(subscriber))
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn test_initialize_discord_does_not_wait_for_discord() {
-        let state = Arc::new(AppState::new());
-        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
-        let started = tokio::time::Instant::now();
+    /// App state whose ownership record currently names this instance.
+    fn owned_state() -> Arc<AppState> {
+        let owner = PresenceOwner::with_pid(THIS_PID);
+        owner.set_record_owner(THIS_PID);
+        Arc::new(AppState {
+            owner: Arc::new(owner),
+            ..AppState::new()
+        })
+    }
 
-        assert!(service.initialize_discord("0").await.is_ok());
+    /// Starts the watch and lets it record its first observation (as owner)
+    /// before the test changes the ownership record.
+    async fn start_watch(state: &Arc<AppState>) -> PresenceService {
+        let service = PresenceService::new(Arc::clone(state), PresenceConfig::default());
+        service.start_ownership_watch();
+        tokio::time::sleep(OWNERSHIP_CHECK_INTERVAL * 2).await;
+        service
+    }
 
-        assert_eq!(
-            started.elapsed(),
-            Duration::ZERO,
-            "No connect attempt or retry delay inside initialize"
+    #[test]
+    fn test_ownership_watch_releases_once_per_loss() {
+        let now = Instant::now();
+        let mut watch = OwnershipWatch::new(true);
+
+        assert!(!watch.should_release(OWNED, now));
+        assert!(watch.should_release(OWNER_HAS_SENT, now));
+        assert!(!watch.should_release(OWNER_HAS_SENT, now));
+        assert!(!watch.should_release(OWNED, now));
+        assert!(watch.should_release(OWNER_HAS_SENT, now));
+    }
+
+    #[test]
+    fn test_ownership_watch_detects_loss_again_after_reclaim_during_release() {
+        let now = Instant::now();
+        let mut watch = OwnershipWatch::new(true);
+        assert!(watch.should_release(OWNER_HAS_SENT, now));
+
+        // The release found that ownership had already come back.
+        watch.mark_owner();
+
+        assert!(watch.should_release(OWNER_HAS_SENT, now));
+    }
+
+    #[test]
+    fn test_ownership_watch_waits_for_the_owner_send_or_the_fallback() {
+        let start = Instant::now();
+        let mut watch = OwnershipWatch::new(true);
+
+        assert!(!watch.should_release(OWNER_NOT_SENT, start));
+        assert!(!watch.should_release(OWNER_NOT_SENT, start + Duration::from_secs(2)));
+        assert!(watch.should_release(OWNER_NOT_SENT, start + RELEASE_FALLBACK));
+        assert!(
+            !watch.should_release(OWNER_NOT_SENT, start + Duration::from_secs(10)),
+            "Only one release per loss"
         );
-        let discord = state.discord.lock().await;
-        assert!(discord.has_client());
-        assert!(!discord.is_connected());
     }
 
     #[tokio::test(start_paused = true)]
-    async fn test_first_update_after_a_failed_connect_is_sent_once_discord_is_reachable() {
+    async fn test_ownership_watch_releases_once_when_another_instance_takes_over() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        let _service = start_watch(&state).await;
+
+        // The test process itself plays the other, live instance.
+        state.owner.set_record_owner(std::process::id());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        assert_eq!(
+            capture.count(RELEASED),
+            1,
+            "Release must happen once on the transition, not on every tick"
+        );
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_ownership_watch_does_not_release_while_owner() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        let _service = start_watch(&state).await;
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        assert_eq!(capture.count(RELEASED), 0);
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_ownership_watch_does_not_release_when_record_is_missing() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        let _service = start_watch(&state).await;
+
+        state.owner.remove_record();
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        assert_eq!(capture.count(RELEASED), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_ownership_watch_does_not_release_when_owner_pid_is_dead() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        let _service = start_watch(&state).await;
+
+        state.owner.set_record_owner(dead_test_pid());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        assert_eq!(capture.count(RELEASED), 0);
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_update_presence_does_not_wait_for_a_slow_discord_send() {
         use tower_lsp::lsp_types::Url;
 
-        // Logged right before every activity send attempt.
-        const SEND_ATTEMPT: &str = "Sending presence update";
-        const RESEND_AFTER_CONNECT: &str = "Discord is reachable; resending the latest presence";
-
-        let (capture, _guard) = capture_logs();
-        // No Discord client: every connect attempt fails, like a closed Discord.
         let state = Arc::new(AppState::new());
         let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
-        service.start_background_connect();
-
         let workspace_root = test_workspace_root();
-        let url = Url::from_file_path(workspace_root.join("a.rs")).unwrap();
-        let doc = Document::new(&url, &workspace_root, None);
-        assert!(service.update_presence(Some(doc)).await.is_ok());
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        assert_eq!(capture.count(SEND_ATTEMPT), 1, "The update itself failed");
-        assert_eq!(capture.count(RESEND_AFTER_CONNECT), 0);
+        let doc = |name: &str| {
+            let url = Url::from_file_path(workspace_root.join(name)).unwrap();
+            Document::new(&url, &workspace_root, None)
+        };
 
-        // Discord becomes reachable.
-        state.discord.lock().await.set_connected_for_test(true);
-        tokio::time::sleep(BACKGROUND_CONNECT_MAX_DELAY).await;
+        // Holding the Discord lock simulates a slow connect or send in progress.
+        let discord_busy = state.discord.lock().await;
 
-        assert_eq!(capture.count(RESEND_AFTER_CONNECT), 1);
-        assert_eq!(
-            capture.count(SEND_ATTEMPT),
-            2,
-            "The latest presence is sent again once connected"
+        assert!(service.update_presence(Some(doc("first.rs"))).await.is_ok());
+        // Let the first update start, so its send blocks on the Discord lock.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // A new editor event must not wait for that send to finish.
+        let second_update = tokio::time::timeout(
+            Duration::from_secs(1),
+            service.update_presence(Some(doc("second.rs"))),
+        )
+        .await;
+        assert!(
+            second_update.is_ok(),
+            "update_presence must not wait for the Discord lock"
         );
+
+        drop(discord_busy);
     }
 
-    fn test_doc(name: &str) -> Document {
-        let workspace_root = test_workspace_root();
-        let url = tower_lsp::lsp_types::Url::from_file_path(workspace_root.join(name)).unwrap();
-        Document::new(&url, &workspace_root, None)
+    #[tokio::test(start_paused = true)]
+    async fn test_ownership_release_clears_once_and_keeps_the_connection() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        state.discord.lock().await.set_connected_for_test(true);
+        let _service = start_watch(&state).await;
+
+        // The test process itself plays the other, live instance.
+        state.owner.set_record_owner(std::process::id());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        assert_eq!(capture.count(CLEARED), 1, "Clear once on the transition");
+        assert!(
+            state.discord.lock().await.is_connected(),
+            "Release must keep the IPC connection open"
+        );
+        state.owner.remove_record();
     }
 
     /// File name of the document the last dispatched update carried.
@@ -605,6 +885,33 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         assert_eq!(last_sent_file(&state).await.as_deref(), Some("a.rs"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_first_update_after_gaining_ownership_skips_the_throttle_window() {
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        assert!(service
+            .update_presence(Some(test_doc("a.rs")))
+            .await
+            .is_ok());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Inside the window, a regular update waits for the window end...
+        assert!(service
+            .update_presence(Some(test_doc("b.rs")))
+            .await
+            .is_ok());
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(last_sent_file(&state).await.as_deref(), Some("a.rs"));
+
+        // ...but the first update after gaining ownership goes out at once.
+        assert!(service
+            .update_presence_now(Some(test_doc("c.rs")))
+            .await
+            .is_ok());
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(last_sent_file(&state).await.as_deref(), Some("c.rs"));
     }
 
     #[tokio::test(start_paused = true)]
@@ -669,5 +976,142 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
 
         assert_eq!(last_sent_file(&state).await.as_deref(), Some("b.rs"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_non_owner_waits_for_the_owner_send_before_clearing() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        state.discord.lock().await.set_connected_for_test(true);
+        let _service = start_watch(&state).await;
+
+        // A live instance (the test process) claims but has not sent yet.
+        let other = std::process::id();
+        state.owner.set_record_fields(other, 1_000, 0);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(capture.count(CLEARED), 0, "Owner has not sent yet");
+
+        state.owner.set_record_fields(other, 1_000, 2_000);
+        tokio::time::sleep(Duration::from_millis(1_500)).await;
+        assert_eq!(capture.count(CLEARED), 1, "Clear once the owner has sent");
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_non_owner_clears_after_the_fallback_if_the_owner_never_sends() {
+        let (capture, _guard) = capture_logs();
+        let state = owned_state();
+        state.discord.lock().await.set_connected_for_test(true);
+        let _service = start_watch(&state).await;
+
+        state.owner.set_record_fields(std::process::id(), 1_000, 0);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(capture.count(CLEARED), 0);
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(
+            capture.count(CLEARED),
+            1,
+            "Fallback must clear a stale presence"
+        );
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_update_sends_the_shared_session_start() {
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        assert!(state.owner.claim());
+
+        assert!(service
+            .update_presence_now(Some(test_doc("a.rs")))
+            .await
+            .is_ok());
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        let session = Duration::from_millis(state.owner.session_start_ms());
+        assert_eq!(state.discord.lock().await.start_timestamp(), session);
+        state.owner.remove_record();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_initialize_discord_does_not_wait_for_discord() {
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        let started = Instant::now();
+
+        assert!(service.initialize_discord("0").await.is_ok());
+
+        assert_eq!(
+            started.elapsed(),
+            Duration::ZERO,
+            "No connect attempt or retry delay inside initialize"
+        );
+        let discord = state.discord.lock().await;
+        assert!(discord.has_client());
+        assert!(!discord.is_connected());
+    }
+
+    /// Logged right before every activity send attempt.
+    const SEND_ATTEMPT: &str = "Using shared session start";
+    /// Logged when the background connect succeeds and resends.
+    const RESEND_AFTER_CONNECT: &str = "Discord is reachable; resending the latest presence";
+
+    #[tokio::test(start_paused = true)]
+    async fn test_first_update_after_a_failed_connect_is_sent_once_discord_is_reachable() {
+        let (capture, _guard) = capture_logs();
+        // No Discord client: every connect attempt fails, like a closed Discord.
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        service.start_background_connect();
+
+        assert!(service
+            .update_presence_now(Some(test_doc("a.rs")))
+            .await
+            .is_ok());
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(capture.count(SEND_ATTEMPT), 1, "The update itself failed");
+        assert_eq!(capture.count(RESEND_AFTER_CONNECT), 0);
+
+        // Discord becomes reachable.
+        state.discord.lock().await.set_connected_for_test(true);
+        tokio::time::sleep(BACKGROUND_CONNECT_MAX_DELAY).await;
+
+        assert_eq!(capture.count(RESEND_AFTER_CONNECT), 1);
+        assert_eq!(
+            capture.count(SEND_ATTEMPT),
+            2,
+            "The latest presence is sent again once connected"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_non_owner_reconnects_and_does_not_send() {
+        let (capture, _guard) = capture_logs();
+        // This instance is THIS_PID; the live test process owns the presence.
+        let state = owned_state();
+        state.owner.set_record_owner(std::process::id());
+        assert!(!state.owner.is_owner());
+
+        // A document from an earlier update, waiting to be resent.
+        *state.last_document.lock().await = Some(test_doc("a.rs"));
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        service.start_background_connect();
+
+        // Discord becomes reachable.
+        state.discord.lock().await.set_connected_for_test(true);
+        tokio::time::sleep(BACKGROUND_CONNECT_MAX_DELAY).await;
+
+        assert_eq!(
+            capture.count(RESEND_AFTER_CONNECT),
+            1,
+            "The resend path ran"
+        );
+        assert_eq!(capture.count(SEND_ATTEMPT), 0, "A non-owner must not send");
+        assert!(
+            capture.count("Another instance owns the presence, skipping Discord activity update")
+                > 0
+        );
+        state.owner.remove_record();
     }
 }

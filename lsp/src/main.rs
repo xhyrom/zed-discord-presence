@@ -74,6 +74,9 @@ impl Backend {
 
     async fn on_change(&self, uri: &tower_lsp::lsp_types::Url, line_number: Option<u32>) {
         debug!("Document changed");
+        // Only reached from user-driven events (open, change, save, cursor
+        // highlight), so it is safe to claim here.
+        let acquired = self.app_state.owner.claim();
 
         let doc = {
             let workspace = self.app_state.workspace.lock().await;
@@ -82,7 +85,15 @@ impl Backend {
             Document::new(uri, workspace_path, line_number)
         };
 
-        if let Err(e) = self.presence_service.update_presence(Some(doc)).await {
+        let result = if acquired {
+            // First event after gaining ownership: skip the throttle window so the
+            // previous owner can clear its activity sooner.
+            self.presence_service.update_presence_now(Some(doc)).await
+        } else {
+            self.presence_service.update_presence(Some(doc)).await
+        };
+
+        if let Err(e) = result {
             error!("Failed to update presence: {}", e);
         } else {
             debug!("Presence updated successfully");
@@ -193,6 +204,8 @@ impl LanguageServer for Backend {
         // Connect without blocking initialize; retries until Discord is up.
         self.presence_service.start_background_connect();
 
+        self.presence_service.start_ownership_watch();
+
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").into(),
@@ -290,8 +303,9 @@ async fn main() {
     logger::init_logger();
 
     info!(
-        "Starting Discord Presence LSP server v{}",
-        env!("CARGO_PKG_VERSION")
+        "Starting Discord Presence LSP server v{} (pid {})",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id()
     );
 
     let stdin = tokio::io::stdin();
