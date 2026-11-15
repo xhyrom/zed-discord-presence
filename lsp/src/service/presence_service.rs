@@ -244,6 +244,19 @@ impl PresenceService {
 mod tests {
     use super::*;
 
+    /// Absolute workspace root for test documents.
+    ///
+    /// `Url::from_file_path` rejects relative paths, and no single path literal
+    /// is absolute on both Windows (needs a drive prefix) and Unix (needs a
+    /// leading `/`), so "C:/test" made every URL built from it fail on Unix.
+    fn test_workspace_root() -> std::path::PathBuf {
+        if cfg!(windows) {
+            std::path::PathBuf::from(r"C:\test")
+        } else {
+            std::path::PathBuf::from("/test")
+        }
+    }
+
     #[tokio::test]
     async fn test_shutdown_cancels_idle_timeout_and_marks_state() {
         let state = Arc::new(AppState::new());
@@ -278,14 +291,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_rapid_updates_batched_into_single_discord_call() {
-        use std::path::PathBuf;
         use tower_lsp::lsp_types::Url;
 
         let state = Arc::new(AppState::new());
         let config = PresenceConfig::default();
         let service = PresenceService::new(Arc::clone(&state), config);
 
-        let workspace_root = PathBuf::from("C:/test");
+        let workspace_root = test_workspace_root();
 
         // Call update_presence 5 times rapidly (simulates rapid file switches)
         for i in 0..5 {
@@ -312,14 +324,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_latest_document_sent_after_debounce() {
-        use std::path::PathBuf;
         use tower_lsp::lsp_types::Url;
 
         let state = Arc::new(AppState::new());
         let config = PresenceConfig::default();
         let service = PresenceService::new(Arc::clone(&state), config);
 
-        let workspace_root = PathBuf::from("C:/test");
+        let workspace_root = test_workspace_root();
 
         // Send doc1
         let file_path1 = workspace_root.join("file1.rs");
