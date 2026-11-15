@@ -71,6 +71,15 @@ pkill -f "discord-ipc-bridge" && ~/scripts/discord-ipc-bridge.sh &
 
 </details>
 
+### Multiple Windows
+
+Zed starts one language server per project, so each open window runs its own instance. They coordinate so that only one presence is shown:
+
+- The most recently used window owns the presence. Opening, editing or clicking in a file of another window makes that window the owner.
+- Switching windows takes about 1 to 2 seconds to show up, because Zed does not tell extensions when a window gains focus; the switch is noticed on the next editor event.
+- The elapsed timer is shared by all windows of a session, so it does not reset when you switch windows. It starts over only after every window has been closed.
+- If Discord is closed and reopened, the presence comes back by itself within about 35 seconds, without any editor action.
+
 ## How to configure?
 
 You can configure state, details and git integration by changing Discord Presence LSP settings. This can be done in <kbd>zed: open settings</kbd> with following configuration:
