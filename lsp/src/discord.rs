@@ -45,9 +45,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Once older, it is sent again to re-assert the presence (e.g. after a Discord
 /// restart) and to surface a broken pipe through the failed write.
 const REASSERT_INTERVAL: Duration = Duration::from_secs(20);
-/// Minimum gap between two activity sends. Discord documents a limit of
-/// 5 updates per 20 seconds for the Game SDK; the RPC docs give no figure.
-const MIN_SEND_INTERVAL: Duration = Duration::from_secs(4);
+/// Minimum gap between two activity sends, matching the 2 s update throttle.
+/// Discord documents 5 updates per 20 seconds for the Game SDK (the RPC docs
+/// give no figure); identical activity is skipped, so only changing content
+/// can reach one write per 2 s.
+const MIN_SEND_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Activity fields plus the optional repository URL shown as a button.
 type ActivityKey = (ActivityFields, Option<String>);

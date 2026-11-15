@@ -19,14 +19,12 @@
 
 use std::path::{Path, PathBuf};
 use std::process::exit;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use config::PresenceConfig;
 use document::Document;
 use git::get_repository_and_remote;
 use service::{AppState, PresenceService};
-use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
@@ -57,7 +55,6 @@ struct Backend {
     client: Client,
     presence_service: Arc<PresenceService>,
     app_state: Arc<AppState>,
-    active_doc_uri: Arc<Mutex<Option<String>>>,
 }
 
 impl Backend {
@@ -72,12 +69,7 @@ impl Backend {
             client,
             presence_service,
             app_state,
-            active_doc_uri: Arc::new(Mutex::new(None)),
         }
-    }
-
-    async fn set_active_doc_uri(&self, uri: Option<String>) {
-        *self.active_doc_uri.lock().await = uri;
     }
 
     async fn on_change(&self, uri: &tower_lsp::lsp_types::Url, line_number: Option<u32>) {
@@ -150,55 +142,6 @@ impl Backend {
         }
         *self.app_state.git_branch.lock().await = branch;
     }
-
-    fn start_file_polling_loop(&self) {
-        let active_doc_uri = Arc::clone(&self.active_doc_uri);
-        let app_state = Arc::clone(&self.app_state);
-        let file_monitor = self.presence_service.file_monitor().clone();
-        let presence_service = Arc::clone(&self.presence_service);
-        let shutting_down = Arc::clone(&self.app_state.shutting_down);
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
-            loop {
-                interval.tick().await;
-                if shutting_down.load(Ordering::SeqCst) {
-                    debug!("Polling loop shutting down");
-                    break;
-                }
-
-                if let Ok(uri_lock) = active_doc_uri.try_lock() {
-                    if let Some(current_uri) = uri_lock.clone() {
-                        drop(uri_lock);
-
-                        if file_monitor
-                            .check_active_file(Some(current_uri.clone()))
-                            .await
-                            .is_some()
-                        {
-                            debug!("Active file changed (polling detected): {}", current_uri);
-
-                            if let Ok(url) = tower_lsp::lsp_types::Url::parse(&current_uri) {
-                                let workspace_path = {
-                                    let workspace = app_state.workspace.lock().await;
-                                    workspace.path().map(ToString::to_string)
-                                };
-
-                                if let Some(path_str) = workspace_path {
-                                    let doc = Document::new(&url, Path::new(&path_str), None);
-                                    if let Err(e) =
-                                        presence_service.update_presence(Some(doc)).await
-                                    {
-                                        warn!("Failed to update presence on file switch: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
 }
 
 #[tower_lsp::async_trait]
@@ -249,8 +192,6 @@ impl LanguageServer for Backend {
         }
         // Connect without blocking initialize; retries until Discord is up.
         self.presence_service.start_background_connect();
-
-        self.start_file_polling_loop();
 
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
@@ -305,17 +246,12 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         debug!("Document opened: {}", params.text_document.uri);
-        let uri = params.text_document.uri.to_string();
-        self.set_active_doc_uri(Some(uri)).await;
         self.on_change(&params.text_document.uri, None).await;
     }
 
     #[instrument(skip(self, params))]
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         debug!("Document changed: {}", params.text_document.uri);
-
-        let uri = params.text_document.uri.to_string();
-        self.set_active_doc_uri(Some(uri)).await;
 
         let line_number = params
             .content_changes
@@ -329,8 +265,6 @@ impl LanguageServer for Backend {
     #[instrument(skip(self, params))]
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         debug!("Document saved: {}", params.text_document.uri);
-        let uri = params.text_document.uri.to_string();
-        self.set_active_doc_uri(Some(uri)).await;
         self.on_change(&params.text_document.uri, None).await;
     }
 
