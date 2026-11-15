@@ -263,8 +263,7 @@ impl Discord {
             .buttons(
                 git_remote_url
                     .as_ref()
-                    .map(|url| vec![Button::new("View Repository", url)])
-                    .unwrap_or_default(),
+                    .map_or_else(Vec::new, |url| vec![Button::new("View Repository", url)]),
             );
 
         let activity =

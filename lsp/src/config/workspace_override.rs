@@ -172,8 +172,7 @@ fn parse_one(json: &Value) -> WorkspaceOverride {
 pub fn parse_workspace_overrides(json: &Value) -> Vec<WorkspaceOverride> {
     json.get("overrides")
         .and_then(Value::as_array)
-        .map(|arr| arr.iter().map(parse_one).collect())
-        .unwrap_or_default()
+        .map_or_else(Vec::new, |arr| arr.iter().map(parse_one).collect())
 }
 
 #[cfg(test)]
