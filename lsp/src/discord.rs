@@ -17,10 +17,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, MutexGuard};
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use discord_rich_presence::{
     activity::{Activity, Assets, Button, Timestamps},
@@ -37,14 +39,146 @@ const MAX_RETRIES: u32 = 5;
 const INITIAL_DELAY_MS: u64 = 500;
 /// Maximum delay between retries in milliseconds
 const MAX_DELAY_MS: u64 = 10_000;
+/// Upper bound for opening the IPC pipe and completing the handshake.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// An identical activity is skipped while its last send is younger than this.
+/// Once older, it is sent again to re-assert the presence (e.g. after a Discord
+/// restart) and to surface a broken pipe through the failed write.
+const REASSERT_INTERVAL: Duration = Duration::from_secs(20);
+/// Minimum gap between two activity sends, matching the 2 s update throttle.
+/// Discord documents 5 updates per 20 seconds for the Game SDK (the RPC docs
+/// give no figure); identical activity is skipped, so only changing content
+/// can reach one write per 2 s.
+const MIN_SEND_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Activity fields plus the optional repository URL shown as a button.
+type ActivityKey = (ActivityFields, Option<String>);
+
+/// What `change_activity` should do with a requested activity.
+#[derive(Debug, PartialEq, Eq)]
+enum SendDecision {
+    /// Send it now.
+    Send,
+    /// Identical to the last send, which is still recent: do nothing.
+    Skip,
+    /// Too soon after the previous send: stored as pending, and a flush must
+    /// be scheduled at the given instant.
+    Schedule(Instant),
+    /// A flush is already scheduled: the activity replaced the pending one.
+    Queued,
+}
+
+/// Deduplication and rate limiting state for activity sends.
+///
+/// Shared with the deferred flush task, so it lives behind a std mutex that is
+/// only held briefly and never across an `.await`.
+#[derive(Debug, Default)]
+struct SendGate {
+    last_activity: Option<ActivityKey>,
+    last_sent_at: Option<Instant>,
+    /// Latest activity waiting for the minimum send interval to pass.
+    pending: Option<ActivityKey>,
+    /// When the scheduled flush runs; `Some` while a flush task owns `pending`.
+    flush_at: Option<Instant>,
+    flush_task: Option<JoinHandle<()>>,
+}
+
+impl SendGate {
+    fn decide(&mut self, activity: &ActivityKey, now: Instant) -> SendDecision {
+        if self.flush_at.is_some() {
+            self.pending = Some(activity.clone());
+            return SendDecision::Queued;
+        }
+
+        let Some(sent_at) = self.last_sent_at else {
+            return SendDecision::Send;
+        };
+        let elapsed = now.saturating_duration_since(sent_at);
+
+        if elapsed < REASSERT_INTERVAL && self.last_activity.as_ref() == Some(activity) {
+            return SendDecision::Skip;
+        }
+
+        if elapsed < MIN_SEND_INTERVAL {
+            let flush_at = sent_at + MIN_SEND_INTERVAL;
+            self.pending = Some(activity.clone());
+            self.flush_at = Some(flush_at);
+            return SendDecision::Schedule(flush_at);
+        }
+
+        SendDecision::Send
+    }
+
+    fn record_sent(&mut self, activity: ActivityKey, now: Instant) {
+        self.last_activity = Some(activity);
+        self.last_sent_at = Some(now);
+    }
+
+    /// Takes the pending activity for the running flush. Returns `None`, and
+    /// ends the flush, if nothing is pending or it matches a recent send.
+    fn take_pending(&mut self, now: Instant) -> Option<ActivityKey> {
+        let recent = self
+            .last_sent_at
+            .is_some_and(|sent_at| now.saturating_duration_since(sent_at) < REASSERT_INTERVAL);
+        let activity = self.pending.take();
+        let duplicate = activity
+            .as_ref()
+            .is_some_and(|activity| recent && self.last_activity.as_ref() == Some(activity));
+
+        if activity.is_none() || duplicate {
+            self.flush_at = None;
+            return None;
+        }
+        activity
+    }
+
+    /// Called by the flush task after a send: schedules another flush if an
+    /// activity was queued meanwhile, otherwise ends the flush.
+    fn next_flush(&mut self) -> Option<Instant> {
+        self.flush_at = match (&self.pending, self.last_sent_at) {
+            (Some(_), Some(sent_at)) => Some(sent_at + MIN_SEND_INTERVAL),
+            _ => None,
+        };
+        self.flush_at
+    }
+
+    fn end_flush(&mut self) {
+        self.flush_at = None;
+    }
+
+    /// Forgets the last activity so the next one is sent even if identical.
+    /// The send time is kept, so the minimum interval still applies.
+    fn forget_last_activity(&mut self) {
+        self.last_activity = None;
+    }
+
+    /// Drops the pending activity and stops any scheduled flush.
+    fn cancel_pending(&mut self) {
+        self.pending = None;
+        self.flush_at = None;
+        if let Some(task) = self.flush_task.take() {
+            task.abort();
+        }
+    }
+}
+
+/// Locks the send gate, recovering the state if a previous holder panicked.
+fn lock_gate(gate: &StdMutex<SendGate>) -> StdMutexGuard<'_, SendGate> {
+    gate.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[derive(Debug)]
 pub struct Discord {
-    client: Option<Mutex<DiscordIpcClient>>,
-    start_timestamp: Duration,
+    client: Option<Arc<Mutex<DiscordIpcClient>>>,
+    /// Start of the elapsed timer (unix ms), shared with the deferred send
+    /// task so a pending send uses the value current at send time.
+    start_ms: Arc<AtomicU64>,
     connected: Arc<AtomicBool>,
     shutting_down: Arc<AtomicBool>,
-    last_activity: Option<(ActivityFields, Option<String>)>,
+    send_gate: Arc<StdMutex<SendGate>>,
+    /// Last activity requested through `change_activity_with_reconnect`. Kept
+    /// across failed writes, so the heartbeat can send it again.
+    requested: Option<ActivityKey>,
 }
 
 impl Discord {
@@ -56,10 +190,11 @@ impl Discord {
 
         Self {
             client: None,
-            start_timestamp: since_epoch,
+            start_ms: Arc::new(AtomicU64::new(Self::to_millis(since_epoch))),
             connected: Arc::new(AtomicBool::new(false)),
             shutting_down,
-            last_activity: None,
+            send_gate: Arc::default(),
+            requested: None,
         }
     }
 
@@ -70,6 +205,25 @@ impl Discord {
 
     pub fn has_client(&self) -> bool {
         self.client.is_some()
+    }
+
+    /// Sets the start of the elapsed timer sent with every activity.
+    pub fn set_start_timestamp(&mut self, start: Duration) {
+        self.start_ms
+            .store(Self::to_millis(start), Ordering::SeqCst);
+    }
+
+    fn current_start(start_ms: &AtomicU64) -> Duration {
+        Duration::from_millis(start_ms.load(Ordering::SeqCst))
+    }
+
+    fn to_millis(duration: Duration) -> u64 {
+        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Whether this connection shows an activity sent by this instance.
+    pub fn has_activity(&self) -> bool {
+        lock_gate(&self.send_gate).last_activity.is_some()
     }
 
     fn is_shutting_down(&self) -> bool {
@@ -90,7 +244,7 @@ impl Discord {
         );
 
         let discord_client = DiscordIpcClient::new(application_id);
-        self.client = Some(Mutex::new(discord_client));
+        self.client = Some(Arc::new(Mutex::new(discord_client)));
 
         debug!("Discord IPC client created successfully");
         Ok(())
@@ -104,16 +258,35 @@ impl Discord {
 
         debug!("Connecting to Discord IPC");
 
-        let mut client = self.get_client().await?;
-        client.connect().map_err(|e| {
-            self.connected.store(false, Ordering::SeqCst);
-            error!("Failed to connect to Discord IPC: {}", e);
-            crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {e}"))
-        })?;
+        let client = Arc::clone(self.client.as_ref().ok_or_else(|| {
+            crate::error::PresenceError::Discord("Discord client not initialized".to_string())
+        })?);
 
-        self.connected.store(true, Ordering::SeqCst);
-        info!("Successfully connected to Discord IPC");
-        Ok(())
+        // The crate's connect is blocking pipe IO (open + handshake read). Run
+        // it on the blocking pool so it never stalls a runtime worker, and
+        // bound it, including the wait for the client lock. On timeout the
+        // blocking call may hold the client lock until it returns; later
+        // attempts then time out too instead of hanging.
+        let attempt = tokio::time::timeout(CONNECT_TIMEOUT, async move {
+            let mut client = client.lock_owned().await;
+            tokio::task::spawn_blocking(move || client.connect()).await
+        })
+        .await;
+
+        let failure = match attempt {
+            Ok(Ok(Ok(()))) => {
+                self.connected.store(true, Ordering::SeqCst);
+                info!("Successfully connected to Discord IPC");
+                return Ok(());
+            }
+            Ok(Ok(Err(e))) => format!("Failed to connect to Discord IPC: {e}"),
+            Ok(Err(e)) => format!("Discord IPC connect task failed: {e}"),
+            Err(_) => format!("Timed out connecting to Discord IPC after {CONNECT_TIMEOUT:?}"),
+        };
+
+        self.connected.store(false, Ordering::SeqCst);
+        error!("{}", failure);
+        Err(crate::error::PresenceError::Discord(failure))
     }
 
     /// Connects to Discord IPC with exponential backoff retry.
@@ -187,6 +360,7 @@ impl Discord {
     pub async fn kill(&self) -> Result<()> {
         debug!("Killing Discord IPC client");
         self.connected.store(false, Ordering::SeqCst);
+        lock_gate(&self.send_gate).cancel_pending();
 
         if !self.has_client() {
             debug!("Skipping Discord IPC close because the client was not initialized");
@@ -212,8 +386,14 @@ impl Discord {
     #[instrument(skip(self))]
     pub async fn clear_activity(&mut self) -> Result<()> {
         debug!("Clearing Discord activity");
+        self.requested = None;
 
-        self.last_activity = None;
+        {
+            // A deferred send must not overwrite the cleared presence.
+            let mut gate = lock_gate(&self.send_gate);
+            gate.cancel_pending();
+            gate.forget_last_activity();
+        }
 
         if !self.has_client() {
             debug!("Skipping Discord activity clear because the client was not initialized");
@@ -245,15 +425,54 @@ impl Discord {
             return Err(Self::shutdown_error("update Discord activity"));
         }
 
-        if let Some((last_fields, last_git)) = &self.last_activity {
-            if last_fields == &activity_fields && last_git == &git_remote_url {
-                debug!("Activity unchanged, skipping update");
+        let activity = (activity_fields, git_remote_url);
+        let decision = lock_gate(&self.send_gate).decide(&activity, Instant::now());
+        match decision {
+            SendDecision::Send => {}
+            SendDecision::Skip => {
+                debug!("Activity unchanged and sent recently, skipping update");
+                return Ok(());
+            }
+            SendDecision::Queued => {
+                debug!("Activity queued behind an already scheduled send");
+                return Ok(());
+            }
+            SendDecision::Schedule(flush_at) => {
+                debug!("Activity deferred to respect the minimum send interval");
+                self.schedule_flush(flush_at);
                 return Ok(());
             }
         }
 
+        // Only used to label the write in the debug log.
+        let path = match lock_gate(&self.send_gate).last_activity.as_ref() {
+            None => "first-on-connection",
+            Some(last) if *last == activity => "re-assert",
+            Some(_) => "immediate",
+        };
+
         let mut client = self.get_client().await?;
-        let timestamp: i64 = i64::try_from(self.start_timestamp.as_millis()).map_err(|e| {
+        let start_timestamp = Self::current_start(&self.start_ms);
+        Self::send_activity(&mut client, &activity, start_timestamp, path).inspect_err(|_| {
+            // Mark as disconnected so next attempt will reconnect
+            self.connected.store(false, Ordering::SeqCst);
+        })?;
+        drop(client);
+
+        lock_gate(&self.send_gate).record_sent(activity, Instant::now());
+
+        debug!("Discord activity updated successfully");
+        Ok(())
+    }
+
+    /// Builds the activity payload and writes it to the Discord IPC socket.
+    fn send_activity(
+        client: &mut DiscordIpcClient,
+        (activity_fields, git_remote_url): &ActivityKey,
+        start_timestamp: Duration,
+        path: &str,
+    ) -> Result<()> {
+        let timestamp: i64 = i64::try_from(start_timestamp.as_millis()).map_err(|e| {
             error!("Failed to convert timestamp: {}", e);
             crate::error::PresenceError::Discord(format!("Failed to convert timestamp: {e}"))
         })?;
@@ -263,8 +482,7 @@ impl Discord {
             .buttons(
                 git_remote_url
                     .as_ref()
-                    .map(|url| vec![Button::new("View Repository", url)])
-                    .unwrap_or_default(),
+                    .map_or_else(Vec::new, |url| vec![Button::new("View Repository", url)]),
             );
 
         let activity =
@@ -301,17 +519,84 @@ impl Discord {
 
         client.set_activity(activity).map_err(|e| {
             error!("Failed to set activity: {}", e);
-            // Mark as disconnected so next attempt will reconnect
-            self.connected.store(false, Ordering::SeqCst);
             crate::error::PresenceError::Discord(format!("Failed to set activity: {e}"))
         })?;
 
-        drop(client);
-
-        self.last_activity = Some((activity_fields, git_remote_url));
-
-        debug!("Discord activity updated successfully");
+        debug!(
+            "Activity sent: path={} start_ms={} pid={}",
+            path,
+            timestamp,
+            std::process::id()
+        );
         Ok(())
+    }
+
+    /// Spawns the task that sends the pending activity once the minimum send
+    /// interval has passed, repeating while new activities keep being queued.
+    fn schedule_flush(&self, flush_at: Instant) {
+        let gate = Arc::clone(&self.send_gate);
+        let client = self.client.clone();
+        let connected = Arc::clone(&self.connected);
+        let shutting_down = Arc::clone(&self.shutting_down);
+        let start_ms = Arc::clone(&self.start_ms);
+
+        let task = tokio::spawn(async move {
+            let mut flush_at = flush_at;
+            loop {
+                tokio::time::sleep_until(flush_at).await;
+
+                if shutting_down.load(Ordering::SeqCst) {
+                    lock_gate(&gate).end_flush();
+                    return;
+                }
+
+                let Some(activity) = lock_gate(&gate).take_pending(Instant::now()) else {
+                    return;
+                };
+                let Some(client) = client.as_ref() else {
+                    lock_gate(&gate).end_flush();
+                    return;
+                };
+
+                // Read at send time: the shared start may have changed while
+                // this send was pending.
+                let start_timestamp = Self::current_start(&start_ms);
+                debug!(
+                    "Deferred send: timestamps.start={} ms (pid {})",
+                    start_timestamp.as_millis(),
+                    std::process::id()
+                );
+
+                let mut client = client.lock().await;
+                if let Err(e) =
+                    Self::send_activity(&mut client, &activity, start_timestamp, "deferred")
+                {
+                    warn!(
+                        "Deferred activity update failed, marking as disconnected: {}",
+                        e
+                    );
+                    connected.store(false, Ordering::SeqCst);
+                    let mut state = lock_gate(&gate);
+                    state.forget_last_activity();
+                    state.end_flush();
+                    return;
+                }
+                drop(client);
+                debug!("Deferred Discord activity sent");
+
+                let next = {
+                    let mut state = lock_gate(&gate);
+                    state.record_sent(activity, Instant::now());
+                    state.next_flush()
+                };
+                match next {
+                    Some(at) => flush_at = at,
+                    None => return,
+                }
+            }
+        });
+
+        lock_gate(&self.send_gate).flush_task = Some(task);
     }
 
     /// Changes activity with automatic reconnection on failure.
@@ -323,18 +608,24 @@ impl Discord {
         git_remote_url: Option<String>,
     ) -> Result<()> {
         if self.is_shutting_down() {
-            self.last_activity = None;
+            lock_gate(&self.send_gate).forget_last_activity();
             return Err(Self::shutdown_error("update Discord activity"));
         }
+
+        self.requested = Some((activity_fields.clone(), git_remote_url.clone()));
 
         // If not connected, try to reconnect first
         if !self.is_connected() {
             warn!("Discord not connected, attempting reconnection...");
-            self.last_activity = None;
+            lock_gate(&self.send_gate).forget_last_activity();
             if let Err(e) = self.reconnect().await {
                 debug!("Reconnection failed: {}", e);
                 return Err(e);
             }
+            debug!(
+                "Reconnected (pid {}); the next write is the first on this connection",
+                std::process::id()
+            );
         }
 
         // Try to update activity
@@ -344,10 +635,62 @@ impl Discord {
                 // Connection may have dropped, mark as disconnected
                 warn!("Activity update failed, marking as disconnected: {}", e);
                 self.connected.store(false, Ordering::SeqCst);
-                self.last_activity = None;
+                lock_gate(&self.send_gate).forget_last_activity();
                 Err(e)
             }
         }
+    }
+
+    /// Gives up this instance's presence after another instance took ownership.
+    ///
+    /// Clears this connection's activity, which unmasks the owner's, but keeps
+    /// the IPC connection open so regaining ownership needs no new handshake.
+    /// Pending sends are cancelled and the last activity is forgotten, so the
+    /// first update after regaining ownership is not skipped as identical.
+    pub async fn release(&mut self) -> Result<()> {
+        if !self.is_connected() {
+            // Nothing to clear, but a deferred send must not go out.
+            self.requested = None;
+            let mut gate = lock_gate(&self.send_gate);
+            gate.cancel_pending();
+            gate.forget_last_activity();
+            return Ok(());
+        }
+
+        info!("Clearing the activity of a non-owner instance");
+        // clear_activity also cancels pending sends and forgets the last activity.
+        self.clear_activity().await
+    }
+
+    /// Whether there is a requested activity the heartbeat can re-assert.
+    pub fn has_requested_activity(&self) -> bool {
+        self.requested.is_some()
+    }
+
+    /// Sends the last requested activity again through the normal rules: it
+    /// is skipped if identical and sent less than `REASSERT_INTERVAL` ago,
+    /// otherwise written, so a dead connection shows up as a failed write.
+    pub async fn reassert(&mut self) -> Result<()> {
+        let Some((fields, git_remote_url)) = self.requested.clone() else {
+            return Ok(());
+        };
+        debug!(
+            "Re-asserting the requested activity (pid {})",
+            std::process::id()
+        );
+        self.change_activity_with_reconnect(fields, git_remote_url)
+            .await
+    }
+
+    /// Sets the connection flag without a real Discord client.
+    #[cfg(test)]
+    pub(crate) fn set_connected_for_test(&self, connected: bool) {
+        self.connected.store(connected, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_timestamp(&self) -> Duration {
+        Self::current_start(&self.start_ms)
     }
 }
 
@@ -421,7 +764,7 @@ mod tests {
     fn test_start_timestamp_is_set() {
         let discord = Discord::new(shutdown_signal(false));
         // Timestamp should be non-zero (set to current time)
-        assert!(discord.start_timestamp.as_millis() > 0);
+        assert!(discord.start_timestamp().as_millis() > 0);
     }
 
     #[tokio::test]
@@ -450,5 +793,248 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("shutdown is in progress"));
+    }
+
+    fn activity_with_state(state: &str) -> ActivityKey {
+        let mut fields = sample_fields();
+        fields.state = Some(state.to_string());
+        (fields, None)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_identical_activity_is_skipped_before_reassert_interval() {
+        let mut gate = SendGate::default();
+        let coding = activity_with_state("coding");
+
+        assert_eq!(gate.decide(&coding, Instant::now()), SendDecision::Send);
+        gate.record_sent(coding.clone(), Instant::now());
+
+        tokio::time::advance(REASSERT_INTERVAL.saturating_sub(Duration::from_secs(1))).await;
+
+        assert_eq!(gate.decide(&coding, Instant::now()), SendDecision::Skip);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_identical_activity_is_resent_after_reassert_interval() {
+        let mut gate = SendGate::default();
+        let coding = activity_with_state("coding");
+
+        gate.record_sent(coding.clone(), Instant::now());
+
+        tokio::time::advance(REASSERT_INTERVAL + Duration::from_secs(1)).await;
+
+        assert_eq!(gate.decide(&coding, Instant::now()), SendDecision::Send);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_activities_within_min_interval_are_not_sent_back_to_back() {
+        let mut gate = SendGate::default();
+        let first = activity_with_state("first");
+        let second = activity_with_state("second");
+        let third = activity_with_state("third");
+        let start = Instant::now();
+
+        assert_eq!(gate.decide(&first, start), SendDecision::Send);
+        gate.record_sent(first, start);
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+
+        assert_eq!(
+            gate.decide(&second, Instant::now()),
+            SendDecision::Schedule(start + MIN_SEND_INTERVAL)
+        );
+        assert_eq!(gate.decide(&third, Instant::now()), SendDecision::Queued);
+
+        // When the flush runs, only the latest queued activity goes out.
+        tokio::time::advance(MIN_SEND_INTERVAL.saturating_sub(Duration::from_secs(1))).await;
+
+        assert_eq!(gate.take_pending(Instant::now()), Some(third));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_change_activity_defers_send_and_flush_drains_pending() {
+        let mut discord = Discord::new(shutdown_signal(false));
+        lock_gate(&discord.send_gate).record_sent(activity_with_state("first"), Instant::now());
+
+        // There is no IPC client, so an immediate send would return an error:
+        // `Ok` here means the activity was deferred instead of sent.
+        let (fields, git_remote_url) = activity_with_state("second");
+        assert!(discord
+            .change_activity(fields, git_remote_url)
+            .await
+            .is_ok());
+        {
+            let gate = lock_gate(&discord.send_gate);
+            assert_eq!(gate.pending, Some(activity_with_state("second")));
+            assert!(gate.flush_at.is_some());
+        }
+
+        tokio::time::advance(MIN_SEND_INTERVAL).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
+
+        let gate = lock_gate(&discord.send_gate);
+        assert!(
+            gate.pending.is_none(),
+            "The flush task should take the pending activity"
+        );
+        assert!(
+            gate.flush_at.is_none(),
+            "The flush should end after draining"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_clear_activity_cancels_pending_send() {
+        let mut discord = Discord::new(shutdown_signal(false));
+        lock_gate(&discord.send_gate).record_sent(activity_with_state("first"), Instant::now());
+
+        let (fields, git_remote_url) = activity_with_state("second");
+        assert!(discord
+            .change_activity(fields, git_remote_url)
+            .await
+            .is_ok());
+        assert!(discord.clear_activity().await.is_ok());
+
+        let gate = lock_gate(&discord.send_gate);
+        assert!(gate.pending.is_none());
+        assert!(gate.flush_at.is_none());
+        assert!(gate.last_activity.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_release_lets_the_next_identical_update_be_sent() {
+        let mut discord = Discord::new(shutdown_signal(false));
+        // Connected, so release goes through clear_activity and keeps the link.
+        discord.connected.store(true, Ordering::SeqCst);
+        let coding = activity_with_state("coding");
+        lock_gate(&discord.send_gate).record_sent(coding.clone(), Instant::now());
+
+        // Past the minimum interval but inside the re-assert window, an
+        // identical activity is normally skipped.
+        tokio::time::advance(MIN_SEND_INTERVAL).await;
+        let before_release = lock_gate(&discord.send_gate).decide(&coding, Instant::now());
+        assert_eq!(before_release, SendDecision::Skip);
+
+        assert!(discord.release().await.is_ok());
+
+        let after_release = lock_gate(&discord.send_gate).decide(&coding, Instant::now());
+        assert_eq!(after_release, SendDecision::Send);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_release_cancels_pending_send_and_keeps_the_connection() {
+        let mut discord = Discord::new(shutdown_signal(false));
+        discord.connected.store(true, Ordering::SeqCst);
+        lock_gate(&discord.send_gate).record_sent(activity_with_state("first"), Instant::now());
+
+        let (fields, git_remote_url) = activity_with_state("second");
+        assert!(discord
+            .change_activity(fields, git_remote_url)
+            .await
+            .is_ok());
+        assert!(discord.release().await.is_ok());
+
+        // Still connected: regaining ownership needs no new handshake.
+        assert!(discord.is_connected());
+        let gate = lock_gate(&discord.send_gate);
+        assert!(gate.pending.is_none());
+        assert!(gate.flush_at.is_none());
+        assert!(gate.last_activity.is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_reassert_skips_identical_activity_within_the_reassert_interval() {
+        // Connected flag set but no IPC client: a skipped re-assert writes
+        // nothing and stays connected, an attempted write fails and disconnects.
+        let mut discord = Discord::new(shutdown_signal(false));
+        discord.connected.store(true, Ordering::SeqCst);
+        let coding = activity_with_state("coding");
+        discord.requested = Some(coding.clone());
+        lock_gate(&discord.send_gate).record_sent(coding, Instant::now());
+
+        // One heartbeat tick later: identical and sent < 20 s ago.
+        tokio::time::advance(Duration::from_secs(15)).await;
+        assert!(discord.reassert().await.is_ok());
+        assert!(discord.is_connected(), "Nothing was written");
+
+        // Past REASSERT_INTERVAL: written again, and the write finds it dead.
+        tokio::time::advance(Duration::from_secs(6)).await;
+        assert!(discord.reassert().await.is_err());
+        assert!(
+            !discord.is_connected(),
+            "A failed write marks it disconnected"
+        );
+        assert!(
+            discord.has_requested_activity(),
+            "Kept for the next heartbeat"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_connect_times_out_instead_of_waiting_forever() {
+        let mut discord = Discord::new(shutdown_signal(false));
+        discord.create_client("0").unwrap();
+
+        // Holding the client lock simulates a handshake that never returns.
+        let stuck_handshake = discord.get_client().await.unwrap();
+
+        let error = discord.connect().await.unwrap_err();
+
+        assert!(error.to_string().contains("Timed out"));
+        assert!(!discord.is_connected());
+        drop(stuck_handshake);
+    }
+
+    /// In-memory sink for log output written on the current thread.
+    #[derive(Clone, Default)]
+    struct LogSink(Arc<StdMutex<Vec<u8>>>);
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_deferred_send_uses_the_start_current_at_send_time() {
+        crate::test_support::keep_callsites_interested();
+        let sink = LogSink::default();
+        let writer = sink.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_max_level(tracing::Level::DEBUG)
+            .with_ansi(false)
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let mut discord = Discord::new(shutdown_signal(false));
+        // An unconnected client: the deferred send reaches the write, which
+        // then fails without touching a real pipe.
+        discord.create_client("0").unwrap();
+        lock_gate(&discord.send_gate).record_sent(activity_with_state("first"), Instant::now());
+
+        discord.set_start_timestamp(Duration::from_millis(1_000));
+        let (fields, git_remote_url) = activity_with_state("second");
+        assert!(discord
+            .change_activity(fields, git_remote_url)
+            .await
+            .is_ok());
+
+        // The shared start changes while the send is still pending.
+        discord.set_start_timestamp(Duration::from_millis(2_000));
+        tokio::time::advance(MIN_SEND_INTERVAL).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
+
+        let output = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
+        assert!(
+            output.contains("Deferred send: timestamps.start=2000 ms"),
+            "{output}"
+        );
+        assert!(!output.contains("timestamps.start=1000"), "{output}");
     }
 }

@@ -17,11 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-mod file_monitor;
+mod owner;
 mod presence_service;
 mod workspace_service;
 
-pub use file_monitor::FileMonitor;
+pub use owner::{OwnershipCheck, PresenceOwner};
 pub use presence_service::PresenceService;
 pub use workspace_service::WorkspaceService;
 
@@ -41,6 +41,7 @@ pub struct AppState {
     pub git_branch: Arc<Mutex<Option<String>>>,
     pub last_document: Arc<Mutex<Option<Document>>>,
     pub shutting_down: Arc<AtomicBool>,
+    pub owner: Arc<PresenceOwner>,
 }
 
 impl AppState {
@@ -55,6 +56,7 @@ impl AppState {
             git_branch: Arc::new(Mutex::new(None)),
             last_document: Arc::new(Mutex::new(None)),
             shutting_down,
+            owner: Arc::new(PresenceOwner::new()),
         }
     }
 
