@@ -48,6 +48,8 @@ mod idle;
 mod languages;
 mod logger;
 mod service;
+#[cfg(test)]
+mod test_support;
 mod util;
 
 #[derive(Debug)]

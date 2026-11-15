@@ -33,7 +33,7 @@ use tracing::{debug, info, warn};
 #[derive(Debug)]
 pub struct PresenceService {
     state: Arc<AppState>,
-    idle_manager: IdleManager,
+    idle_manager: Arc<IdleManager>,
     file_monitor: FileMonitor,
     debounce_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pending_doc: Arc<Mutex<Option<Document>>>,
@@ -42,7 +42,7 @@ pub struct PresenceService {
 
 impl PresenceService {
     pub fn new(state: Arc<AppState>, config: PresenceConfig) -> Self {
-        let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
+        let idle_manager = Arc::new(IdleManager::new(Arc::clone(&state.shutting_down)));
 
         Self {
             state,
@@ -71,6 +71,7 @@ impl PresenceService {
         let pending_doc = Arc::clone(&self.pending_doc);
         let debounce_handle = Arc::clone(&self.debounce_handle);
         let debounce_delay = self.update_debounce;
+        let idle_manager = Arc::clone(&self.idle_manager);
 
         // Spawn debounce task
         let task = tokio::spawn(async move {
@@ -79,7 +80,9 @@ impl PresenceService {
             // Get the latest pending doc (might have changed during debounce)
             if let Some(doc) = pending_doc.lock().await.take() {
                 let update_start = std::time::Instant::now();
-                if let Err(e) = Self::perform_update_internal(&state, Some(doc)).await {
+                if let Err(e) =
+                    Self::perform_update_internal(&state, &idle_manager, Some(doc)).await
+                {
                     warn!("Failed to update Discord presence: {}", e);
                 } else {
                     let total_elapsed = update_start.elapsed();
@@ -99,7 +102,11 @@ impl PresenceService {
         Ok(())
     }
 
-    async fn perform_update_internal(state: &Arc<AppState>, doc: Option<Document>) -> Result<()> {
+    async fn perform_update_internal(
+        state: &Arc<AppState>,
+        idle_manager: &IdleManager,
+        doc: Option<Document>,
+    ) -> Result<()> {
         if state.is_shutting_down() {
             debug!("Skipping presence update because shutdown is in progress");
             return Ok(());
@@ -111,9 +118,9 @@ impl PresenceService {
             (*last_doc).clone_from(&doc);
         }
 
-        // Reset idle timeout if document changed
+        // Reset idle timeout if document changed. The shared manager aborts the
+        // previous timer, so only the most recent update can trigger the idle action.
         if doc.is_some() {
-            let idle_manager = IdleManager::new(Arc::clone(&state.shutting_down));
             let workspace_name = {
                 let workspace = state.workspace.lock().await;
                 workspace.name().to_string()
@@ -355,6 +362,76 @@ mod tests {
         assert_eq!(
             last_filename, "file2.rs",
             "Latest document should be stored after debounce"
+        );
+    }
+
+    /// In-memory log sink used to count events emitted by background tasks.
+    #[derive(Clone, Default)]
+    struct LogCapture(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogCapture {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl LogCapture {
+        fn count(&self, needle: &str) -> usize {
+            String::from_utf8_lossy(&self.0.lock().unwrap())
+                .matches(needle)
+                .count()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_spaced_updates_fire_idle_action_only_once() {
+        use tower_lsp::lsp_types::Url;
+
+        // Every idle action ends with this warning in tests, because no Discord
+        // client exists, so counting it counts how many idle timers fired.
+        const IDLE_FIRED: &str = "from idle task";
+
+        crate::test_support::keep_callsites_interested();
+        let capture = LogCapture::default();
+        let writer = capture.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || writer.clone())
+            .with_ansi(false)
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let state = Arc::new(AppState::new());
+        let service = PresenceService::new(Arc::clone(&state), PresenceConfig::default());
+        let workspace_root = test_workspace_root();
+
+        // Three updates spaced beyond the debounce window, so each one reaches
+        // perform_update_internal and re-arms the idle timer.
+        for i in 0..3 {
+            let url = Url::from_file_path(workspace_root.join(format!("file{i}.rs"))).unwrap();
+            let doc = Document::new(&url, &workspace_root, None);
+            assert!(service.update_presence(Some(doc)).await.is_ok());
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+
+        assert_eq!(
+            capture.count(IDLE_FIRED),
+            0,
+            "No idle action before the timeout"
+        );
+
+        // Move past the default 300 s idle timeout, then let woken tasks run.
+        tokio::time::advance(Duration::from_secs(301)).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
+
+        assert_eq!(
+            capture.count(IDLE_FIRED),
+            1,
+            "Only the timer armed by the latest update should fire"
         );
     }
 }
